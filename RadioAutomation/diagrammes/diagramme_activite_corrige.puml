@@ -1,0 +1,83 @@
+@startuml
+!theme plain
+
+title DIAGRAMME D'ACTIVITE - FLUX COMPLET RADIO TSIRY (corrigé)
+
+|Utilisateur (Accueil)|
+start
+:Ouvrir la page de connexion;
+:Saisir identifiant et mot de passe;
+
+if (Identifiants valides ?) then (Non)
+    :Afficher message d'erreur;
+    stop
+else (Oui)
+endif
+
+:Accéder au menu (Navbar);
+
+|Client|
+:Demander un service;
+:Indiquer les dates et heures souhaitées de diffusion;
+
+|Accueil|
+:Enregistrer / rechercher le client;
+:Créer une commande;
+:Choisir le service (parmi ceux déjà enregistrés);
+:Choisir le tarif correspondant (déjà défini);
+:Saisir la désignation de la ligne;
+:Enregistrer les dates et heure de diffusion souhaitées;
+
+|Plateforme|
+:Calculer le montant de la ligne;
+:Calculer le montant total de la commande;
+:Générer automatiquement la facture;
+
+|Accueil|
+:Recevoir la facture;
+:Remettre la facture (ou le document) au client;
+
+note right
+Fin de l'interaction
+Client <-> Accueil
+pour la commande et la facture
+end note
+
+:Sélectionner le fichier MP3 déjà présent sur l'ordinateur;
+
+|Plateforme|
+:Enregistrer les informations du fichier audio;
+:Transférer le fichier vers le PAD via SMB;
+
+if (Transfert SMB réussi ?) then (Non)
+    |Accueil|
+    :Afficher l'erreur de transfert;
+    stop
+else (Oui)
+endif
+
+|Accueil|
+:Ouvrir le PAD (organisé en 7 jours);
+:Choisir le jour correspondant à la date du client;
+:Choisir le "lera" (créneau) libre correspondant à l'heure demandée;
+:Placer / copier le fichier dans ce lera;
+
+|Plateforme|
+:Enregistrer la programmation\n(date, heure, lera = ordre de diffusion);
+
+|PAD|
+:Lire, à chaque jour, le contenu de chaque lera prévu;
+:Diffuser automatiquement le fichier présent dans le lera\nà l'heure prévue;
+
+|Plateforme|
+:Vérifier si la période de diffusion est terminée;
+
+if (Période terminée ?) then (Oui)
+    :Marquer la programmation comme expirée;
+    :Archiver la commande;
+else (Non)
+    :Conserver la programmation active;
+endif
+
+stop
+@enduml

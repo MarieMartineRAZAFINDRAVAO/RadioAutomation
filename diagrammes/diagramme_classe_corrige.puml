@@ -1,0 +1,158 @@
+@startuml
+!theme plain
+
+skinparam classAttributeIconColor black
+skinparam linetype ortho
+
+title DIAGRAMME DE CLASSE - RADIO TSIRY (corrigé, aligné avec le code réel)
+
+class Utilisateur {
+    - idUtilisateur : int <<PK>>
+    - username : varchar
+    - motDePasse : varchar
+    - role : varchar {Accueil, Admin, Technicien}
+
+    + seConnecter()
+    + seDeconnecter()
+}
+
+class Client {
+    - idClient : int <<PK>>
+    - nom : varchar
+    - telephone : varchar
+    - dateCreation : datetime
+
+    + enregistrer()
+    + modifier()
+    + consulter()
+}
+
+class Service {
+    - idService : int <<PK>>
+    - nomService : varchar
+    - typeService : varchar
+    - description : text
+    - modeTarification : varchar
+    - uniteFacturation : varchar
+    - statut : varchar
+
+    + ajouter()
+    + modifier()
+    + consulter()
+}
+
+class Tarif {
+    - idTarif : int <<PK>>
+    - idService : int <<FK>>
+    - libelle : varchar
+    - duree : int
+    - unite : varchar
+    - prix : decimal
+    - statut : varchar
+
+    + ajouter()
+    + modifier()
+    + consulter()
+}
+
+class Commande {
+    - idCommande : int <<PK>>
+    - idClient : int <<FK>>
+    - idUtilisateur : int <<FK>>
+    - dateCommande : datetime
+    - statut : varchar {En cours, Validée, Archivée, Annulée}
+    - observation : text
+    - montantTotal : decimal
+
+    + creer()
+    + modifier()
+    + calculerMontantTotal()
+    + consulter()
+}
+
+class LigneCommande {
+    - idLigne : int <<PK>>
+    - idCommande : int <<FK>>
+    - idService : int <<FK>>
+    - idTarif : int <<FK>>
+    - designation : varchar
+    - quantite : int
+    - prixUnitaire : decimal
+    - montant : decimal
+    - dateDebut : date
+    - dateFin : date
+    - heureDiffusion : time
+
+    + calculerMontant()
+}
+
+class Document {
+    - idDocument : int <<PK>>
+    - idCommande : int <<FK>>
+    - typeDocument : varchar {Papier, Numerique}
+    - designation : varchar
+    - observation : text
+    - fichier : file
+    - dateCreation : datetime
+}
+
+class Facture {
+    - idFacture : int <<PK>>
+    - idCommande : int <<FK>>
+    - numeroFacture : varchar
+    - dateFacture : datetime
+    - montantTotal : decimal
+    - statut : varchar
+
+    + generer()
+    + consulter()
+}
+
+class FichierAudio {
+    - idFichierAudio : int <<PK>>
+    - idLigne : int <<FK>>
+    - nomFichier : varchar
+    - cheminOrdinateur : varchar
+    - cheminPAD : varchar
+    - format : varchar
+    - taille : bigint
+    - duree : int
+    - dateCreation : datetime
+    - statut : varchar {Disponible, Transféré, En attente, Échec}
+
+    + ajouter()
+    + envoyerVersPAD()
+    + consulter()
+}
+
+class Programmation {
+    - idProgrammation : int <<PK>>
+    - idFichierAudio : int <<FK>>
+    - dateDiffusion : date
+    - heureDiffusion : time
+    - ordreDiffusion : int
+    - statut : varchar {Programmé, Diffusé, Expiré, Échec}
+
+    note right of Programmation
+      ordreDiffusion = numéro du "lera"
+      (créneau) dans la journée choisie
+      parmi les 7 jours du PAD
+    end note
+
+    + programmer()
+    + modifier()
+    + consulter()
+}
+
+Utilisateur "1" -- "0..*" Commande
+Client "1" -- "0..*" Commande
+Commande "1" -- "1..*" LigneCommande
+Commande "1" -- "0..*" Document
+Commande "1" -- "0..1" Facture
+Service "1" -- "0..*" LigneCommande
+Tarif "1" -- "0..*" LigneCommande
+Service "1" -- "0..*" Tarif
+LigneCommande "1" -- "0..*" FichierAudio
+FichierAudio "1" -- "0..*" Programmation
+
+@enduml

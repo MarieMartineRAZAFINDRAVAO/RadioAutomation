@@ -1,0 +1,106 @@
+RADIO TSIRY — Fichiers corrigés / ajoutés pour correspondre à la maquette
+===========================================================================
+
+Ity archive ity dia tsy misy afa-tsy ireo fichier NOVAINA na NAMPIANA
+(tsy ny projet manontolo, satria misy venv/node_modules lehibe tao anaty
+rar-nao). Alao ireto fichier ireto ary asolo/ampio any amin'ny toerany
+tsirairay ao amin'ny projet-nao RadioAutomation (aoka hitovy tsara ny
+"chemin", ohatra frontend/src/App.jsx dia asoloy ny App.jsx efa
+anananao).
+
+FANOVANA VAOVAO amin'ity tolotra ity (mba hitovy amin'ilay sary):
+------------------------------------------------------------------
+1) frontend/src/components/Navbar.jsx
+   -> Navbar iray andalana (tahaka ilay sary): logo + tsindry menu +
+      bokotra clair/sombre + avatar miaraka amin'ny menu "Mon profil /
+      Changer de mot de passe / Paramètres / Déconnexion".
+
+2) frontend/src/pages/Dashboard/Dashboard.jsx
+   -> Endrika roa tsanga (colonne roa) tahaka ilay sary: "Bonjour",
+      carte Radio Tsiry, "Résumé du jour", "Prochaines diffusions" eo
+      ankavia; banniere + "Dernières commandes" eo ankavanana. Donnée
+      marina avokoa (tsy dummy), miala hoe tsy misy raha mbola tsy
+      misy Commande/Facture/Programmation.
+
+3) frontend/src/pages/Clients/Clients.jsx
+   -> CRUD feno: Ajouter / Modifier / Supprimer / Rechercher.
+
+4) frontend/src/pages/Factures/Factures.jsx
+   -> Talohan'izay banga tanteraka ("stub"). Izao dia lisitry ny
+      facture rehetra (N°, Client, Date, Montant, Statut, Imprimer).
+
+5) frontend/src/pages/Parametres/Parametres.jsx
+   -> Talohan'izay banga tanteraka. Izao dia misy onglets (Général /
+      Utilisateurs / Sauvegarde / Système) sy ny "Informations
+      générales" (nom radio) + Enregistrer.
+
+6) frontend/src/pages/Profil/Profil.jsx  (VAOVAO tanteraka)
+   -> Pejy "Mon profil": nom/prénom/email azo ovaina, sy fanovana
+      mot de passe.
+
+7) frontend/src/App.jsx
+   -> Nampidirina ny onglets "clients" sy "profil".
+
+8) backend/radio_app/views.py + urls.py
+   -> Endpoint vaovao ho an'ny Profil:
+        GET/PATCH /api/me/
+        POST      /api/me/changer-mot-de-passe/
+   (mampiasa ny JWT efa ao amin'ny projet-nao, tsy nila fanovana
+   hafa tamin'ny fomba fisian'ny login).
+
+9) frontend/src/services/api.js
+   -> Fonction vaovao: getMe(), updateMe(), changerMotDePasse().
+
+FANOVANA TEO ALOHA (mbola ao anatin'ity zip ity):
+--------------------------------------------------
+- backend/core/settings.py : config PAD_SMB_* sy PAD_LERA_SLOTS
+- backend/radio_app/models.py : FichierAudio.envoyerVersPAD() tena
+  mandeha (SMB na copie lokaly amin'ny mode test)
+- POST /api/fichiers-audio/{id}/envoyer-pad/  et  GET /api/pad/config/
+- frontend/src/pages/FichiersAudio/FichiersAudio.jsx
+- frontend/src/pages/Programmation/Programmation.jsx (grille 7 jours x lera)
+- frontend/src/pages/Diffusion/Diffusion.jsx
+
+Ny fichier rehetra ao anaty zip dia efa nampiasaina "esbuild" mba
+hijerena raha tsy misy fahadisoana syntax (JS/JSX) sy "py_compile"
+ho an'ny Python — samy nandalo soa aman-tsara ireo.
+
+VIVA MAZAVA — MBOLA TSY VITA (fanovana lehibe kokoa, mila fotoana
+be kokoa satria be dia be ny fiantraikany amin'ny code efa misy):
+--------------------------------------------------------------------
+- Ny wizard "Nouvelle commande" (AjoutCommandeWizard.jsx, 2459
+  andalana) dia MBOLA 5 dingana (Client, Service, Tarif, Détails,
+  Récapitulatif) — tsy mbola voaova ho 6 dingana miaraka amin'ny
+  "Dates" sy "Heures" misaraka + ora maro isan'andro (bokotra "+")
+  araka ilay sary. NEFA: ny Etape 1 "Client" ao aminy dia EFA misy
+  ny recherche dynamique (tahaka ny SMS) sy ny "+ Nouveau client"
+  tadiavinao, ary ny Service/Tarif dia EFA mifidy avy amin'ny lisitry
+  efa an'ny radio ihany (init_data.py) — tsy nila fanovana ireo roa
+  ireo satria efa mifanaraka amin'ilay sary sy ilay tadiavinao.
+- Ny endri-boky (visuel) an'ilay wizard mihitsy (carte "Nouvelle
+  commande" miaraka amin'ireo faingo 6 rebaka eo ambony) dia tsy
+  mbola novaina hitovy pixel-by-pixel amin'ilay sary.
+
+Raha tianao hotohizako ny wizard 6 dingana (Dates + Heures miaraka
+amin'ny ora maro isan'andro), na ny endriny hitovy tanteraka
+amin'ilay sary, dia ambarao ahy hataoko amin'ny fizarana manaraka —
+mila fotoana bebe kokoa io satria fichier lehibe be (2459 andalana)
+no ovaina.
+
+Ao amin'ny dossier "diagrammes/" dia misy ny diagramme d'activité sy
+diagramme de classe efa nohavaozina.
+
+
+Raha te-hampiasa SMB tena izy (fa tsy ilay mode test lokaly):
+  pip install pysmb --break-system-packages
+  ary asio PAD_SMB_ENABLED = True ao amin'ny settings.py, sy fenoy ny
+  PAD_SMB_SERVER_NAME / PAD_SMB_SERVER_IP / PAD_SMB_SHARE /
+  PAD_SMB_USERNAME / PAD_SMB_PASSWORD araka ny tena PAD ampiasainao.
+
+Ny sanda "lera" (créneaux) dia azo ovana ao amin'ny PAD_LERA_SLOTS
+(settings.py) — 8 lera isan'andro amin'izao fotoana izao
+(06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00).
+
+Ao amin'ny dossier "diagrammes/" dia misy ny diagramme d'activité sy
+diagramme de classe efa nohavaozina (tamin'ny valiny teo aloha), izay
+mifanaraka tsara amin'ity code ity izao.
