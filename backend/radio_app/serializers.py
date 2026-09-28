@@ -37,11 +37,51 @@ class ServiceSerializer(serializers.ModelSerializer):
 # TARIF
 # ==========================================
 class TarifSerializer(serializers.ModelSerializer):
-    service_nom = serializers.CharField(source='service.nomService', read_only=True)
+    service_nom = serializers.CharField(
+        source='service.nomService',
+        read_only=True
+    )
 
     class Meta:
         model = Tarif
         fields = '__all__'
+
+
+# ==========================================
+# PROGRAMMATION
+# ==========================================
+class ProgrammationSerializer(serializers.ModelSerializer):
+    fichier_nom = serializers.CharField(
+        source='fichierAudio.nomFichier',
+        read_only=True
+    )
+    commande_nom = serializers.SerializerMethodField()
+    client_nom = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Programmation
+        fields = '__all__'
+        read_only_fields = ['commande']
+
+    def get_commande_nom(self, obj):
+        if obj.commande:
+            return f"CMD-{obj.commande.id:04d}"
+        if obj.fichierAudio and obj.fichierAudio.commande:
+            return f"CMD-{obj.fichierAudio.commande.id:04d}"
+        return None
+
+    def get_client_nom(self, obj):
+        if obj.commande and obj.commande.client:
+            return obj.commande.client.nom
+        if (
+            obj.fichierAudio
+            and obj.fichierAudio.commande
+            and obj.fichierAudio.commande.client
+        ):
+            return obj.fichierAudio.commande.client.nom
+        return None
+
+
 # ==========================================
 # LIGNE COMMANDE
 # ==========================================
@@ -69,9 +109,6 @@ class LigneCommandeSerializer(serializers.ModelSerializer):
             'quantite',
             'prixUnitaire',
             'montant',
-            'dateDebut',
-            'dateFin',
-            'heureDiffusion',
         ]
 
         read_only_fields = [
@@ -106,6 +143,11 @@ class CommandeSerializer(serializers.ModelSerializer):
         required=False
     )
 
+    programmations = ProgrammationSerializer(
+        many=True,
+        read_only=True
+    )
+
     class Meta:
         model = Commande
         fields = [
@@ -119,7 +161,10 @@ class CommandeSerializer(serializers.ModelSerializer):
             'statut',
             'observation',
             'montantTotal',
+            'dateDebut',
+            'dateFin',
             'lignes',
+            'programmations',
         ]
 
         read_only_fields = [
@@ -165,6 +210,7 @@ class CommandeSerializer(serializers.ModelSerializer):
 
         return instance
 
+
 # ==========================================
 # DOCUMENT
 # ==========================================
@@ -178,20 +224,30 @@ class DocumentSerializer(serializers.ModelSerializer):
 # FICHIER AUDIO
 # ==========================================
 class FichierAudioSerializer(serializers.ModelSerializer):
+    commande_nom = serializers.SerializerMethodField()
+    client_nom = serializers.CharField(
+        source='commande.client.nom',
+        read_only=True
+    )
+    service_nom = serializers.SerializerMethodField()
+
     class Meta:
         model = FichierAudio
         fields = '__all__'
 
+    def get_commande_nom(self, obj):
+        if obj.commande:
+            return f"CMD-{obj.commande.id:04d}"
+        return None
 
-# ==========================================
-# PROGRAMMATION
-# ==========================================
-class ProgrammationSerializer(serializers.ModelSerializer):
-    fichier_nom = serializers.CharField(source='fichierAudio.nomFichier', read_only=True)
+    def get_service_nom(self, obj):
+        if not obj.commande:
+            return None
+        premiere_ligne = obj.commande.lignes.first()
+        if premiere_ligne:
+            return premiere_ligne.service.nomService
+        return None
 
-    class Meta:
-        model = Programmation
-        fields = '__all__'
 
 # ==========================================
 # FACTURE
@@ -207,6 +263,17 @@ class FactureSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    commande_id = serializers.IntegerField(
+        source='commande.id',
+        read_only=True
+    )
+
+    service_nom = serializers.SerializerMethodField()
+    tarif_libelle = serializers.SerializerMethodField()
+    tarif_prix = serializers.SerializerMethodField()
+
+    lignes = serializers.SerializerMethodField()
+
     class Meta:
         model = Facture
         fields = '__all__'
@@ -214,3 +281,50 @@ class FactureSerializer(serializers.ModelSerializer):
             'numeroFacture',
             'dateFacture',
         )
+
+    def get_service_nom(self, obj):
+        if obj.commande:
+            premiere = obj.commande.lignes.first()
+            if premiere and premiere.service:
+                return premiere.service.nomService
+        return '-'
+
+    def get_tarif_libelle(self, obj):
+        if obj.commande:
+            premiere = obj.commande.lignes.first()
+            if premiere and premiere.tarif:
+                return premiere.tarif.libelle
+        return '-'
+
+    def get_tarif_prix(self, obj):
+        if obj.commande:
+            premiere = obj.commande.lignes.first()
+            if premiere:
+                return float(premiere.prixUnitaire)
+        return 0
+
+    def get_lignes(self, obj):
+        """
+        Grouper les lignes par service + tarif.
+        Retourne : [{nbr, service_nom, tarif_libelle, prixUnitaire, montant}]
+        """
+        from collections import defaultdict
+
+        groupes = defaultdict(lambda: {
+            'nbr': 0,
+            'service_nom': '',
+            'tarif_libelle': '',
+            'prixUnitaire': 0,
+            'montant': 0,
+        })
+
+        for ligne in obj.commande.lignes.all():
+            cle = f"{ligne.service_id}-{ligne.tarif_id}"
+            g = groupes[cle]
+            g['nbr'] += 1
+            g['montant'] += float(ligne.montant)
+            g['service_nom'] = ligne.service.nomService
+            g['tarif_libelle'] = ligne.tarif.libelle
+            g['prixUnitaire'] = float(ligne.prixUnitaire)
+
+        return list(groupes.values())

@@ -1,314 +1,281 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { X, Radio } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  UploadCloud,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+} from 'lucide-react';
 
 import {
   getFichiersAudio,
-  getProgrammations,
-  createProgrammation,
-  deleteProgrammation,
-  getPadConfig,
+  envoyerVersPAD,
 } from '../../services/api';
 
 const mainColor = '#007A4D';
-const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 
-// Retourne le lundi de la semaine contenant "date"
-function lundiDeLaSemaine(date) {
-  const d = new Date(date);
-  const jour = (d.getDay() + 6) % 7; // 0 = lundi
-  d.setDate(d.getDate() - jour);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
+const STATUT_STYLE = {
+  Disponible: { bg: '#F1F5F9', color: '#475569', icon: Clock },
+  'En attente': { bg: '#FEF9C3', color: '#854D0E', icon: Clock },
+  Transféré: { bg: '#DCFCE7', color: '#15803D', icon: CheckCircle2 },
+  Échec: { bg: '#FEF2F2', color: '#DC2626', icon: XCircle },
+};
 
-function formatDate(d) {
-  return d.toISOString().split('T')[0];
-}
-
-export default function Programmation() {
-  const [lera, setLera] = useState([]);
+export default function FichiersAudio({ darkMode = false, onPrecedent }) {
   const [fichiers, setFichiers] = useState([]);
-  const [programmations, setProgrammations] = useState([]);
-  const [semaineDebut, setSemaineDebut] = useState(lundiDeLaSemaine(new Date()));
-  const [modalCell, setModalCell] = useState(null); // { date, heure, ordre }
-  const [fichierChoisi, setFichierChoisi] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [envoiEnCours, setEnvoiEnCours] = useState(null);
   const [erreur, setErreur] = useState('');
 
+  const couleurs = {
+    fond: darkMode ? '#18181B' : '#F5F8F6',
+    carte: darkMode ? '#27272A' : '#FFFFFF',
+    texte: darkMode ? '#F4F4F5' : '#1F2937',
+    texteSecondaire: darkMode ? '#A1A1AA' : '#64748B',
+    bordure: darkMode ? '#3F3F46' : '#DDE8E2',
+    vert: '#007A4D',
+    vertClair: darkMode ? '#164E3B' : '#EAF7F1',
+  };
+
   const chargerDonnees = () => {
-    getPadConfig()
-      .then((res) => setLera(res.data.lera_slots || []))
-      .catch(() => setLera(['06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00']));
-
+    setLoading(true);
     getFichiersAudio()
-      .then((res) => setFichiers(res.data.filter((f) => f.statut === 'Transféré')))
-      .catch(() => {});
-
-    getProgrammations()
-      .then((res) => setProgrammations(res.data))
-      .catch(() => {});
+      .then((res) => {
+        const data = Array.isArray(res.data)
+          ? res.data
+          : res.data?.results || [];
+        setFichiers(data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     chargerDonnees();
   }, []);
 
-  const joursSemaine = useMemo(() => {
-    return JOURS.map((nom, i) => {
-      const d = new Date(semaineDebut);
-      d.setDate(d.getDate() + i);
-      return { nom, date: d, dateStr: formatDate(d) };
-    });
-  }, [semaineDebut]);
-
-  const trouverProgrammation = (dateStr, heure) => {
-    return programmations.find(
-      (p) => p.dateDiffusion === dateStr && p.heureDiffusion?.slice(0, 5) === heure
-    );
-  };
-
-  const ouvrirCellule = (dateStr, heure, ordre) => {
-    const existante = trouverProgrammation(dateStr, heure);
-    if (existante) return; // déjà occupé -> pas de modal, on utilise le bouton "retirer"
-    setModalCell({ dateStr, heure, ordre });
-    setFichierChoisi('');
+  const handleEnvoyerPAD = async (fichier) => {
+    setEnvoiEnCours(fichier.id);
     setErreur('');
-  };
-
-  const confirmerAffectation = async () => {
-    if (!fichierChoisi) {
-      setErreur('Choisissez un fichier audio.');
-      return;
-    }
 
     try {
-      await createProgrammation({
-        fichierAudio: fichierChoisi,
-        dateDiffusion: modalCell.dateStr,
-        heureDiffusion: modalCell.heure,
-        ordreDiffusion: modalCell.ordre,
-        statut: 'Programmé',
-      });
-
-      setModalCell(null);
+      await envoyerVersPAD(fichier.id);
       chargerDonnees();
     } catch (err) {
       setErreur(
-        err.response?.data?.error || "Impossible d'enregistrer la programmation."
+        err.response?.data?.error ||
+          `Échec du transfert de "${fichier.nomFichier}" vers le PAD.`
       );
-    }
-  };
-
-  const retirer = async (prog) => {
-    if (!window.confirm('Retirer cette diffusion de ce lera ?')) return;
-
-    try {
-      await deleteProgrammation(prog.id);
       chargerDonnees();
-    } catch {
-      /* silencieux */
+    } finally {
+      setEnvoiEnCours(null);
     }
-  };
-
-  const semainePrecedente = () => {
-    const d = new Date(semaineDebut);
-    d.setDate(d.getDate() - 7);
-    setSemaineDebut(d);
-  };
-
-  const semaineSuivante = () => {
-    const d = new Date(semaineDebut);
-    d.setDate(d.getDate() + 7);
-    setSemaineDebut(d);
   };
 
   const cardStyle = {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: couleurs.carte,
     borderRadius: '16px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-    padding: '1.5rem',
-    overflowX: 'auto',
+    boxShadow: darkMode ? 'none' : '0 4px 12px rgba(0,0,0,0.06)',
+    padding: '1.8rem',
+    marginBottom: '1.5rem',
   };
 
   return (
-    <div style={{ padding: '0.5rem' }}>
-      <h2 style={{ marginBottom: '0.3rem' }}>📅 Programmation — grille du PAD</h2>
-      <p style={{ color: '#64748B', marginBottom: '1.2rem' }}>
-        7 jours, plusieurs "lera" (créneaux) par jour. Cliquez sur un lera libre
-        pour y placer un fichier déjà transféré vers le PAD.
-      </p>
+    <div
+      style={{
+        minHeight: 'calc(100vh - 90px)',
+        backgroundColor: couleurs.fond,
+        padding: '35px 45px 55px',
+        color: couleurs.texte,
+      }}
+    >
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <h1
+          style={{
+            margin: '0 0 8px',
+            fontSize: '34px',
+            fontWeight: 800,
+            color: couleurs.vert,
+          }}
+        >
+          🎧 Fichiers audio
+        </h1>
+        <p style={{ color: couleurs.texteSecondaire, marginBottom: '25px' }}>
+          Vue générale de tous les fichiers audio rattachés aux commandes.
+          Ajoutez et gérez les MP3 depuis chaque commande (🎙 Gérer l'audio).
+        </p>
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '1rem',
-        }}
-      >
-        <button onClick={semainePrecedente} style={navBtnStyle}>
-          ← Semaine précédente
-        </button>
-        <strong>
-          {formatDate(joursSemaine[0].date)} → {formatDate(joursSemaine[6].date)}
-        </strong>
-        <button onClick={semaineSuivante} style={navBtnStyle}>
-          Semaine suivante →
-        </button>
-      </div>
+        {erreur && (
+          <div
+            style={{
+              color: '#DC2626',
+              backgroundColor: '#FEF2F2',
+              padding: '0.9rem 1.2rem',
+              borderRadius: '10px',
+              marginBottom: '1.2rem',
+            }}
+          >
+            {erreur}
+          </div>
+        )}
 
-      <div style={cardStyle}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
-          <thead>
-            <tr>
-              <th style={{ ...thStyle, width: '90px' }}>Lera</th>
-              {joursSemaine.map((j) => (
-                <th key={j.dateStr} style={thStyle}>
-                  {j.nom}
-                  <div style={{ fontWeight: 400, fontSize: '0.8rem', color: '#94A3B8' }}>
-                    {j.dateStr}
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {lera.map((heure, ordre) => (
-              <tr key={heure}>
-                <td style={{ ...tdStyle, fontWeight: 700, color: mainColor }}>
-                  {heure}
-                </td>
-                {joursSemaine.map((j) => {
-                  const occupe = trouverProgrammation(j.dateStr, heure);
+        <div style={cardStyle}>
+          <h3 style={{ marginTop: 0 }}>Tous les fichiers</h3>
+
+          {loading ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px',
+                color: couleurs.texteSecondaire,
+              }}
+            >
+              Chargement...
+            </div>
+          ) : fichiers.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px',
+                border: `1px dashed ${couleurs.bordure}`,
+                borderRadius: '8px',
+                color: couleurs.texteSecondaire,
+              }}
+            >
+              Aucun fichier pour le moment.
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr
+                  style={{
+                    textAlign: 'left',
+                    borderBottom: `2px solid ${couleurs.bordure}`,
+                  }}
+                >
+                  <th style={{ padding: '0.6rem' }}>Fichier</th>
+                  <th style={{ padding: '0.6rem' }}>Commande</th>
+                  <th style={{ padding: '0.6rem' }}>Client</th>
+                  <th style={{ padding: '0.6rem' }}>Service</th>
+                  <th style={{ padding: '0.6rem' }}>Statut</th>
+                  <th style={{ padding: '0.6rem' }}>Chemin PAD</th>
+                  <th style={{ padding: '0.6rem' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fichiers.map((f) => {
+                  const s = STATUT_STYLE[f.statut] || STATUT_STYLE.Disponible;
+                  const Icon = s.icon;
+
                   return (
-                    <td
-                      key={j.dateStr + heure}
-                      onClick={() => ouvrirCellule(j.dateStr, heure, ordre + 1)}
-                      style={{
-                        ...tdStyle,
-                        cursor: occupe ? 'default' : 'pointer',
-                        backgroundColor: occupe ? '#DCFCE7' : '#F8FAFC',
-                        minWidth: '110px',
-                      }}
+                    <tr
+                      key={f.id}
+                      style={{ borderBottom: `1px solid ${couleurs.bordure}` }}
                     >
-                      {occupe ? (
-                        <div
+                      <td style={{ padding: '0.6rem', fontWeight: 600 }}>
+                        {f.nomFichier}
+                      </td>
+                      <td style={{ padding: '0.6rem' }}>
+                        {f.commande_nom || `CMD-${f.commande}`}
+                      </td>
+                      <td style={{ padding: '0.6rem' }}>
+                        {f.client_nom || '-'}
+                      </td>
+                      <td style={{ padding: '0.6rem' }}>
+                        {f.service_nom || '-'}
+                      </td>
+                      <td style={{ padding: '0.6rem' }}>
+                        <span
                           style={{
-                            display: 'flex',
+                            backgroundColor: s.bg,
+                            color: s.color,
+                            padding: '0.3rem 0.7rem',
+                            borderRadius: '999px',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            display: 'inline-flex',
                             alignItems: 'center',
-                            justifyContent: 'space-between',
+                            gap: '0.3rem',
+                          }}
+                        >
+                          <Icon size={14} /> {f.statut}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          padding: '0.6rem',
+                          color: couleurs.texteSecondaire,
+                        }}
+                      >
+                        {f.cheminPAD || '—'}
+                      </td>
+                      <td style={{ padding: '0.6rem', textAlign: 'right' }}>
+                        <button
+                          onClick={() => handleEnvoyerPAD(f)}
+                          disabled={
+                            envoiEnCours === f.id || f.statut === 'Transféré'
+                          }
+                          style={{
+                            backgroundColor:
+                              f.statut === 'Transféré'
+                                ? '#E2E8F0'
+                                : mainColor,
+                            color:
+                              f.statut === 'Transféré' ? '#64748B' : '#FFF',
+                            border: 'none',
+                            padding: '0.5rem 0.9rem',
+                            borderRadius: '8px',
+                            fontWeight: 700,
+                            cursor:
+                              f.statut === 'Transféré'
+                                ? 'default'
+                                : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
                             gap: '0.4rem',
                           }}
                         >
-                          <span style={{ fontSize: '0.85rem', color: '#15803D', fontWeight: 700 }}>
-                            {occupe.fichier_nom || 'Fichier'}
-                          </span>
-                          <X
-                            size={14}
-                            style={{ cursor: 'pointer', color: '#DC2626' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              retirer(occupe);
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <span style={{ color: '#CBD5E1' }}>+ libre</span>
-                      )}
-                    </td>
+                          {envoiEnCours === f.id ? (
+                            <RefreshCw size={16} className="spin" />
+                          ) : (
+                            <UploadCloud size={16} />
+                          )}
+                          {f.statut === 'Transféré'
+                            ? 'Déjà envoyé'
+                            : 'Envoyer PAD'}
+                        </button>
+                      </td>
+                    </tr>
                   );
                 })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {onPrecedent && (
+          <button
+            onClick={onPrecedent}
+            style={{
+              padding: '13px 25px',
+              borderRadius: '10px',
+              border: `1px solid ${couleurs.bordure}`,
+              background: 'transparent',
+              color: couleurs.texte,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: '15px',
+            }}
+          >
+            ← Retour
+          </button>
+        )}
       </div>
 
-      {/* Modal d'affectation */}
-      {modalCell && (
-        <div style={overlayStyle}>
-          <div style={modalStyle}>
-            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Radio size={20} color={mainColor} /> Placer dans ce lera
-            </h3>
-            <p style={{ color: '#64748B' }}>
-              {modalCell.dateStr} — {modalCell.heure}
-            </p>
-
-            {erreur && (
-              <div style={{ color: '#DC2626', backgroundColor: '#FEF2F2', padding: '0.7rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                {erreur}
-              </div>
-            )}
-
-            <select
-              value={fichierChoisi}
-              onChange={(e) => setFichierChoisi(e.target.value)}
-              style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '2px solid #E2E8F0', marginBottom: '1.2rem' }}
-            >
-              <option value="">-- Choisir un fichier transféré --</option>
-              {fichiers.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nomFichier}
-                </option>
-              ))}
-            </select>
-
-            <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'flex-end' }}>
-              <button onClick={() => setModalCell(null)} style={{ ...navBtnStyle, backgroundColor: '#F1F5F9' }}>
-                Annuler
-              </button>
-              <button
-                onClick={confirmerAffectation}
-                style={{ backgroundColor: mainColor, color: '#FFF', border: 'none', padding: '0.7rem 1.4rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
-              >
-                Programmer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <style>{`
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }
-
-const thStyle = {
-  padding: '0.7rem',
-  borderBottom: '2px solid #E2E8F0',
-  textAlign: 'center',
-};
-
-const tdStyle = {
-  padding: '0.6rem',
-  border: '1px solid #F1F5F9',
-  textAlign: 'center',
-};
-
-const navBtnStyle = {
-  backgroundColor: '#FFFFFF',
-  border: '2px solid #E2E8F0',
-  padding: '0.6rem 1.1rem',
-  borderRadius: '10px',
-  fontWeight: 700,
-  cursor: 'pointer',
-};
-
-const overlayStyle = {
-  position: 'fixed',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  backgroundColor: 'rgba(0,0,0,0.55)',
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  zIndex: 1000,
-};
-
-const modalStyle = {
-  backgroundColor: '#FFFFFF',
-  padding: '2rem',
-  borderRadius: '18px',
-  width: '420px',
-  maxWidth: '90%',
-};

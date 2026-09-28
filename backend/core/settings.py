@@ -24,7 +24,6 @@ INSTALLED_APPS = [
     'radio_app',
 ]
 
-# ⚠️ AUTH_USER_MODEL — ivelan'ny INSTALLED_APPS
 AUTH_USER_MODEL = 'radio_app.Utilisateur'
 
 
@@ -101,26 +100,21 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-# ==========================================
-# CONFIGURATION PAD (transfert des fichiers via SMB)
-# ==========================================
+# ═══════════════════════════════════════════
+# CONFIGURATION PAD (SMB)
+# ═══════════════════════════════════════════
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=BASE_DIR / '.env', override=True)
+except ImportError:
+    pass
 
-# Mettre à True quand un vrai serveur SMB (le PAD) est disponible sur le réseau.
-# Tant que c'est False, envoyerVersPAD() copie simplement le fichier dans
-# PAD_LOCAL_PATH (utile pour développer/tester sans matériel radio réel).
-PAD_SMB_ENABLED = False
-
-PAD_SMB_SERVER_NAME = 'PAD-SERVER'
-PAD_SMB_SERVER_IP = '192.168.1.50'
-PAD_SMB_SHARE = 'diffusion'
-PAD_SMB_USERNAME = 'radio'
-PAD_SMB_PASSWORD = 'change-me'
-
-PAD_LOCAL_PATH = os.path.join(BASE_DIR, 'pad_local')
-
-# Grille des "lera" (créneaux horaires) disponibles chaque jour dans le PAD.
-# ordreDiffusion (dans Programmation) correspond à l'index (1, 2, 3...) de cette liste.
-PAD_LERA_SLOTS = [
-    '06:00', '08:00', '10:00', '12:00',
-    '14:00', '16:00', '18:00', '20:00',
-]
+PAD_SMB_ENABLED = os.getenv('PAD_SMB_ENABLED', 'False').lower() == 'true'
+PAD_SMB_SERVER_IP = os.getenv('PAD_SMB_SERVER_IP', '127.0.0.1')
+PAD_SMB_SERVER_NAME = os.getenv('PAD_SMB_SERVER_NAME', 'SERVEUR')
+PAD_SMB_SHARE = os.getenv('PAD_SMB_SHARE', 'Partage')
+PAD_SMB_USERNAME = os.getenv('PAD_SMB_USERNAME', 'onair')
+PAD_SMB_PASSWORD = os.getenv('PAD_SMB_PASSWORD', '105')
+PAD_LOCAL_PATH = os.getenv('PAD_LOCAL_PATH', './pad_local')
+PAD_READ_ONLY = os.getenv('PAD_READ_ONLY', 'False').lower() == 'true'
+PAD_LOG_OPERATIONS = os.getenv('PAD_LOG_OPERATIONS', 'True').lower() == 'true'

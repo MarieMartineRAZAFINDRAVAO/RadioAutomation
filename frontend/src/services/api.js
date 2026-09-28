@@ -160,12 +160,29 @@ export const createDocument = (data) => {
 // FICHIERS AUDIO
 // =====================================================
 
-export const getFichiersAudio = () => {
-  return API.get('fichiers-audio/');
+export const getFichiersAudio = (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return API.get(`fichiers-audio/${query ? `?${query}` : ''}`);
+};
+
+export const getFichiersAudioParCommande = (commandeId) => {
+  return API.get(`fichiers-audio/par-commande/${commandeId}/`);
+};
+
+export const getFichierAudio = (id) => {
+  return API.get(`fichiers-audio/${id}/`);
 };
 
 export const createFichierAudio = (data) => {
   return API.post('fichiers-audio/', data);
+};
+
+export const updateFichierAudio = (id, data) => {
+  return API.put(`fichiers-audio/${id}/`, data);
+};
+
+export const deleteFichierAudio = (id) => {
+  return API.delete(`fichiers-audio/${id}/`);
 };
 
 export const uploadFichierAudio = (formData) => {
@@ -208,28 +225,70 @@ export const changerMotDePasse = (data) => {
 // PROGRAMMATION
 // =====================================================
 
-export const getProgrammations = () => {
-  return API.get('programmations/');
+export const getProgrammations = (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return API.get(`programmations/${query ? `?${query}` : ''}`);
+};
+
+export const getProgrammation = (id) => {
+  return API.get(`programmations/${id}/`);
 };
 
 export const createProgrammation = (data) => {
   return API.post('programmations/', data);
 };
 
+export const updateProgrammation = (id, data) => {
+  return API.put(`programmations/${id}/`, data);
+};
+
 export const deleteProgrammation = (id) => {
   return API.delete(`programmations/${id}/`);
+};
+
+export const getProgrammationsAujourdHui = () => {
+  return API.get('programmations/aujourd-hui/');
+};
+
+export const getProgrammationsAEnvoyer = () => {
+  return API.get('programmations/a-envoyer/');
+};
+
+export const envoyerProgrammationPAD = (id) => {
+  return API.post(`programmations/${id}/envoyer-pad/`);
+};
+
+export const marquerProgrammationDiffuse = (id) => {
+  return API.post(`programmations/${id}/marquer-diffuse/`);
+};
+
+export const archiverProgrammation = (id) => {
+  return API.post(`programmations/${id}/archiver/`);
 };
 
 // =====================================================
 // FACTURES
 // =====================================================
 
-export const getFactures = () => {
-  return API.get('factures/');
+export const getFactures = (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return API.get(`factures/${query ? `?${query}` : ''}`);
 };
 
 export const getFacture = (id) => {
   return API.get(`factures/${id}/`);
+};
+
+export const marquerFacturePaye = (id) => {
+  return API.post(`factures/${id}/marquer-paye/`);
+};
+
+export const archiverFacture = (id) => {
+  return API.post(`factures/${id}/archiver/`);
+};
+
+export const restaurerFacture = (id) => {
+  return API.post(`factures/${id}/restaurer/`);
 };
 
 // =====================================================

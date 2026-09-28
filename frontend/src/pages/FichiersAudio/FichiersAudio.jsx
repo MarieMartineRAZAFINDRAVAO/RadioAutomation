@@ -1,309 +1,702 @@
 import React, { useEffect, useState } from 'react';
-import { UploadCloud, RefreshCw, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
-import {
-  getLignes,
-  getFichiersAudio,
-  createFichierAudio,
-  envoyerVersPAD,
-} from '../../services/api';
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-const mainColor = '#007A4D';
-
-const STATUT_STYLE = {
-  Disponible: { bg: '#F1F5F9', color: '#475569', icon: Clock },
-  'En attente': { bg: '#FEF9C3', color: '#854D0E', icon: Clock },
-  Transféré: { bg: '#DCFCE7', color: '#15803D', icon: CheckCircle2 },
-  Échec: { bg: '#FEF2F2', color: '#DC2626', icon: XCircle },
-};
-
-export default function FichiersAudio() {
-  const [lignes, setLignes] = useState([]);
+export default function FichiersAudio({
+  darkMode = false,
+  onPrecedent,
+  commandeId = null,
+}) {
+  const [commande, setCommande] = useState(null);
+  const [programmations, setProgrammations] = useState([]);
   const [fichiers, setFichiers] = useState([]);
-  const [ligneChoisie, setLigneChoisie] = useState('');
-  const [nomFichier, setNomFichier] = useState('');
-  const [cheminOrdinateur, setCheminOrdinateur] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [envoiEnCours, setEnvoiEnCours] = useState(null);
-  const [erreur, setErreur] = useState('');
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
-  const chargerDonnees = () => {
-    getLignes()
-      .then((res) => setLignes(res.data))
-      .catch(() => {});
+  // Formulaire
+  const [fichierSelectionne, setFichierSelectionne] = useState(null);
+  const [nomFichier, setNomFichier] = useState('');
+  const [ajoutLoading, setAjoutLoading] = useState(false);
 
-    getFichiersAudio()
-      .then((res) => setFichiers(res.data))
-      .catch(() => {});
+  const couleurs = {
+    fond: darkMode ? '#18181B' : '#F5F8F6',
+    carte: darkMode ? '#27272A' : '#FFFFFF',
+    texte: darkMode ? '#F4F4F5' : '#1F2937',
+    texteSecondaire: darkMode ? '#A1A1AA' : '#6B7280',
+    bordure: darkMode ? '#3F3F46' : '#DDE8E2',
+    vert: '#007A4D',
+    vertClair: darkMode ? '#164E3B' : '#EAF7F1',
+    rouge: '#DC2626',
   };
 
-  useEffect(() => {
-    chargerDonnees();
-  }, []);
-
-  const handleAjouter = async (e) => {
-    e.preventDefault();
-    setErreur('');
-
-    if (!ligneChoisie || !nomFichier || !cheminOrdinateur) {
-      setErreur('Veuillez remplir tous les champs.');
+  // =========================================================
+  // CHARGER LES DONNÉES
+  // =========================================================
+  const chargerDonnees = async () => {
+    if (!commandeId) {
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
-
     try {
-      await createFichierAudio({
-        ligne: ligneChoisie,
-        nomFichier,
-        cheminOrdinateur,
-        format: nomFichier.split('.').pop() || 'mp3',
-        statut: 'Disponible',
-      });
+      setLoading(true);
+      const token = localStorage.getItem('accessToken');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
 
-      setNomFichier('');
-      setCheminOrdinateur('');
-      setLigneChoisie('');
-      chargerDonnees();
+      // Commande + programmations
+      const r1 = await fetch(`${API_BASE_URL}/commandes/${commandeId}/`, { headers });
+      if (r1.ok) {
+        const d1 = await r1.json();
+        setCommande(d1);
+        setProgrammations(Array.isArray(d1.programmations) ? d1.programmations : []);
+      }
+
+      // Fichiers audio
+      const r2 = await fetch(`${API_BASE_URL}/fichiers-audio/?commande=${commandeId}`, { headers });
+      if (r2.ok) {
+        const d2 = await r2.json();
+        const liste = Array.isArray(d2) ? d2 : (d2.results || []);
+        setFichiers(liste);
+      }
     } catch (err) {
-      setErreur(
-        err.response?.data?.error ||
-        "Impossible d'enregistrer le fichier."
-      );
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEnvoyerPAD = async (fichier) => {
-    setEnvoiEnCours(fichier.id);
-    setErreur('');
+  useEffect(() => {
+    chargerDonnees();
+  }, [commandeId]);
+
+  // =========================================================
+  // CHOISIR UN MP3
+  // =========================================================
+  const choisirFichier = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setFichierSelectionne(file);
+    setNomFichier(file.name);
+  };
+
+  // =========================================================
+  // UPLOAD DU FICHIER AU SERVEUR
+  // =========================================================
+  const ajouterFichier = async (e) => {
+    e.preventDefault();
+
+    if (!commandeId) {
+      setError('Veuillez sélectionner une commande.');
+      return;
+    }
+    if (!fichierSelectionne) {
+      setError('Veuillez choisir un fichier MP3.');
+      return;
+    }
 
     try {
-      await envoyerVersPAD(fichier.id);
+      setAjoutLoading(true);
+      setError('');
+
+      const token = localStorage.getItem('accessToken');
+
+      // ═══ FormData pour envoyer le fichier ═══
+      const formData = new FormData();
+      formData.append('fichier', fichierSelectionne);
+      formData.append('commande', commandeId);
+
+      const response = await fetch(`${API_BASE_URL}/fichiers-audio/upload/`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // ⚠️ NE PAS mettre 'Content-Type' — FormData le fait
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(
+          errData ? JSON.stringify(errData) : "Erreur lors de l'upload"
+        );
+      }
+
+      setFichierSelectionne(null);
+      setNomFichier('');
+      setSuccessMessage('Fichier uploadé avec succès.');
       chargerDonnees();
+      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
-      setErreur(
-        err.response?.data?.error ||
-        `Échec du transfert de "${fichier.nomFichier}" vers le PAD.`
+      console.error(err);
+      setError(err.message || "Impossible d'uploader le fichier.");
+    } finally {
+      setAjoutLoading(false);
+    }
+  };
+
+  // =========================================================
+  // ENVOYER VERS LE PAD
+  // =========================================================
+  const envoyerFichier = async (fichier) => {
+    setEnvoiEnCours(fichier.id);
+    setError('');
+
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(
+        `${API_BASE_URL}/fichiers-audio/${fichier.id}/envoyer-pad/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({}),
+        }
       );
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData ? JSON.stringify(errData) : 'Erreur');
+      }
+
+      setSuccessMessage('Fichier envoyé vers le PAD avec succès.');
       chargerDonnees();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Échec du transfert vers le PAD.");
     } finally {
       setEnvoiEnCours(null);
     }
   };
 
+  // =========================================================
+  // FORMATAGE
+  // =========================================================
+  const formaterDateLocale = (date) => {
+    if (!date) return '-';
+    return new Date(`${date}T00:00:00`).toLocaleDateString('fr-FR');
+  };
+
+  const formaterHeure = (heure) => {
+    if (!heure) return '-';
+    return String(heure).slice(0, 5);
+  };
+
+  const serviceNom = () => {
+    if (!commande) return '-';
+    if (Array.isArray(commande.lignes) && commande.lignes.length > 0) {
+      return commande.lignes[0].service_nom || '-';
+    }
+    return '-';
+  };
+
+  // =========================================================
+  // STYLES
+  // =========================================================
   const cardStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: '16px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-    padding: '1.8rem',
-    marginBottom: '1.5rem',
+    backgroundColor: couleurs.carte,
+    border: `1px solid ${couleurs.bordure}`,
+    borderRadius: '14px',
+    padding: '25px',
+    marginBottom: '20px',
+    boxShadow: darkMode ? 'none' : '0 4px 12px rgba(0,0,0,0.04)',
   };
 
-  const inputStyle = {
-    width: '100%',
-    padding: '0.75rem 1rem',
-    borderRadius: '10px',
-    border: '2px solid #E2E8F0',
-    fontSize: '1rem',
-    boxSizing: 'border-box',
+  const thStyle = {
+    padding: '14px',
+    textAlign: 'left',
+    fontWeight: 800,
+    fontSize: '15px',
   };
 
+  const tdStyle = {
+    padding: '14px',
+    fontSize: '15px',
+  };
+
+  // =========================================================
+  // RENDU
+  // =========================================================
   return (
-    <div style={{ padding: '0.5rem' }}>
-      <h2 style={{ marginBottom: '0.3rem' }}>🎧 Fichiers audio</h2>
-      <p style={{ color: '#64748B', marginBottom: '1.5rem' }}>
-        Enregistrez ici les MP3 déjà présents sur l'ordinateur, puis
-        envoyez-les vers le PAD via SMB avant de les programmer.
-      </p>
+    <div
+      style={{
+        minHeight: 'calc(100vh - 90px)',
+        backgroundColor: couleurs.fond,
+        padding: '35px 45px 55px',
+        color: couleurs.texte,
+      }}
+    >
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
 
-      {erreur && (
-        <div
+        {/* TITRE */}
+        <h1
           style={{
-            color: '#DC2626',
-            backgroundColor: '#FEF2F2',
-            padding: '0.9rem 1.2rem',
-            borderRadius: '10px',
-            marginBottom: '1.2rem',
+            margin: '0 0 30px',
+            fontSize: '38px',
+            fontWeight: 800,
+            textAlign: 'center',
+            color: couleurs.vert,
           }}
         >
-          {erreur}
-        </div>
-      )}
+          Fichier Audio
+        </h1>
 
-      {/* Formulaire d'ajout */}
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0 }}>Ajouter un fichier</h3>
-
-        <form
-          onSubmit={handleAjouter}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1.4fr auto',
-            gap: '1rem',
-            alignItems: 'end',
-          }}
-        >
-          <div>
-            <label style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-              Ligne de commande
-            </label>
-            <select
-              value={ligneChoisie}
-              onChange={(e) => setLigneChoisie(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">-- Choisir --</option>
-              {lignes.map((l) => (
-                <option key={l.id} value={l.id}>
-                  #{l.id} - {l.service_nom || 'Service'} -{' '}
-                  {l.designation || 'sans désignation'}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-              Nom du fichier
-            </label>
-            <input
-              type="text"
-              placeholder="ex: pub_epicerie.mp3"
-              value={nomFichier}
-              onChange={(e) => setNomFichier(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-              Chemin sur l'ordinateur
-            </label>
-            <input
-              type="text"
-              placeholder="ex: C:\Audios\pub_epicerie.mp3"
-              value={cheminOrdinateur}
-              onChange={(e) => setCheminOrdinateur(e.target.value)}
-              style={inputStyle}
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
+        {/* MESSAGES */}
+        {error && (
+          <div
             style={{
-              backgroundColor: mainColor,
-              color: '#FFF',
-              border: 'none',
-              padding: '0.8rem 1.4rem',
-              borderRadius: '10px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
+              marginBottom: '20px',
+              backgroundColor: darkMode ? '#451A1A' : '#FEF2F2',
+              border: '1px solid #FECACA',
+              color: couleurs.rouge,
+              padding: '14px 18px',
+              borderRadius: '8px',
+              fontSize: '15px',
             }}
           >
-            Ajouter
+            {error}
+          </div>
+        )}
+
+        {successMessage && (
+          <div
+            style={{
+              marginBottom: '20px',
+              backgroundColor: darkMode ? '#19352C' : '#F0FDF4',
+              border: `1px solid ${couleurs.bordure}`,
+              color: couleurs.texte,
+              padding: '14px 18px',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '15px',
+            }}
+          >
+            {successMessage}
+          </div>
+        )}
+
+        {/* CARTE CLIENT */}
+        {commande && (
+          <div style={cardStyle}>
+            <h3
+              style={{
+                marginTop: 0,
+                marginBottom: '18px',
+                fontSize: '20px',
+                color: couleurs.vert,
+              }}
+            >
+              Informations client
+            </h3>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr',
+                gap: '20px',
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    color: couleurs.texteSecondaire,
+                    fontWeight: 700,
+                    marginBottom: '5px',
+                  }}
+                >
+                  Client
+                </div>
+                <div style={{ fontSize: '17px', fontWeight: 800 }}>
+                  {commande.client_nom || '-'}
+                </div>
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    color: couleurs.texteSecondaire,
+                    fontWeight: 700,
+                    marginBottom: '5px',
+                  }}
+                >
+                  Téléphone
+                </div>
+                <div style={{ fontSize: '17px', fontWeight: 800 }}>
+                  {commande.client_telephone || '-'}
+                </div>
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    fontSize: '13px',
+                    color: couleurs.texteSecondaire,
+                    fontWeight: 700,
+                    marginBottom: '5px',
+                  }}
+                >
+                  Service
+                </div>
+                <div style={{ fontSize: '17px', fontWeight: 800 }}>
+                  {serviceNom()}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CARTE DIFFUSIONS */}
+        <div style={cardStyle}>
+          <h3
+            style={{
+              marginTop: 0,
+              marginBottom: '18px',
+              fontSize: '20px',
+              color: couleurs.vert,
+            }}
+          >
+            Diffusions prévues
+          </h3>
+
+          {loading ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px',
+                color: couleurs.texteSecondaire,
+              }}
+            >
+              Chargement...
+            </div>
+          ) : programmations.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px',
+                border: `1px dashed ${couleurs.bordure}`,
+                borderRadius: '8px',
+                color: couleurs.texteSecondaire,
+              }}
+            >
+              Aucune diffusion prévue pour cette commande.
+            </div>
+          ) : (
+            <div
+              style={{
+                overflowX: 'auto',
+                border: `1px solid ${couleurs.bordure}`,
+                borderRadius: '9px',
+              }}
+            >
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '15px',
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      backgroundColor: couleurs.vert,
+                      color: '#FFFFFF',
+                    }}
+                  >
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Heure</th>
+                    <th style={thStyle}>Service</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {programmations.map((p) => (
+                    <tr
+                      key={p.id}
+                      style={{
+                        borderBottom: `1px solid ${couleurs.bordure}`,
+                      }}
+                    >
+                      <td style={{ ...tdStyle, fontWeight: 700 }}>
+                        {formaterDateLocale(p.dateDiffusion)}
+                      </td>
+                      <td style={{ ...tdStyle, fontWeight: 700 }}>
+                        {formaterHeure(p.heureDiffusion)}
+                      </td>
+                      <td style={tdStyle}>{serviceNom()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* CARTE AJOUTER MP3 */}
+        {commandeId && (
+          <div style={cardStyle}>
+            <h3
+              style={{
+                marginTop: 0,
+                marginBottom: '18px',
+                fontSize: '20px',
+                color: couleurs.vert,
+              }}
+            >
+              Ajouter un fichier MP3
+            </h3>
+
+            <form onSubmit={ajouterFichier}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '15px',
+                  flexWrap: 'wrap',
+                  marginBottom: '15px',
+                }}
+              >
+                <input
+                  type="file"
+                  accept=".mp3,audio/mpeg"
+                  onChange={choisirFichier}
+                  id="file-input"
+                  style={{ display: 'none' }}
+                />
+
+                <label
+                  htmlFor="file-input"
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: couleurs.vertClair,
+                    color: couleurs.vert,
+                    borderRadius: '8px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: `2px solid ${couleurs.vert}`,
+                    fontSize: '15px',
+                  }}
+                >
+                  📁 Parcourir
+                </label>
+
+                {nomFichier && (
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: '15px',
+                      color: couleurs.texte,
+                    }}
+                  >
+                    {nomFichier}
+                  </span>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={ajoutLoading || !fichierSelectionne}
+                  style={{
+                    marginLeft: 'auto',
+                    border: 'none',
+                    backgroundColor: fichierSelectionne ? couleurs.vert : '#9CA3AF',
+                    color: '#FFFFFF',
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    cursor:
+                      ajoutLoading || !fichierSelectionne
+                        ? 'not-allowed'
+                        : 'pointer',
+                    fontWeight: 700,
+                    fontSize: '15px',
+                  }}
+                >
+                  {ajoutLoading ? 'Upload en cours...' : '+ Ajouter'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* CARTE LISTE FICHIERS */}
+        <div style={cardStyle}>
+          <h3
+            style={{
+              marginTop: 0,
+              marginBottom: '18px',
+              fontSize: '20px',
+              color: couleurs.vert,
+            }}
+          >
+            Fichiers audio associés
+          </h3>
+
+          {loading ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px',
+                color: couleurs.texteSecondaire,
+              }}
+            >
+              Chargement...
+            </div>
+          ) : fichiers.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px',
+                border: `1px dashed ${couleurs.bordure}`,
+                borderRadius: '8px',
+                color: couleurs.texteSecondaire,
+              }}
+            >
+              Aucun fichier audio pour cette commande.
+            </div>
+          ) : (
+            <div
+              style={{
+                overflowX: 'auto',
+                border: `1px solid ${couleurs.bordure}`,
+                borderRadius: '9px',
+              }}
+            >
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '15px',
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      backgroundColor: couleurs.vert,
+                      color: '#FFFFFF',
+                    }}
+                  >
+                    <th style={thStyle}>Fichier</th>
+                    <th style={thStyle}>Statut</th>
+                    <th style={thStyle}>Chemin PAD</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fichiers.map((f) => (
+                    <tr
+                      key={f.id}
+                      style={{
+                        borderBottom: `1px solid ${couleurs.bordure}`,
+                      }}
+                    >
+                      <td style={{ ...tdStyle, fontWeight: 700 }}>
+                        {f.nomFichier}
+                      </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            padding: '5px 12px',
+                            borderRadius: '14px',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            backgroundColor:
+                              f.statut === 'Transféré'
+                                ? '#DCFCE7'
+                                : '#FEF9C3',
+                            color:
+                              f.statut === 'Transféré'
+                                ? '#15803D'
+                                : '#854D0E',
+                          }}
+                        >
+                          {f.statut}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          color: couleurs.texteSecondaire,
+                        }}
+                      >
+                        {f.cheminPAD || '—'}
+                      </td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          textAlign: 'center',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => envoyerFichier(f)}
+                          disabled={
+                            envoiEnCours === f.id ||
+                            f.statut === 'Transféré'
+                          }
+                          style={{
+                            border: 'none',
+                            backgroundColor:
+                              f.statut === 'Transféré'
+                                ? '#E2E8F0'
+                                : couleurs.vert,
+                            color:
+                              f.statut === 'Transféré'
+                                ? '#64748B'
+                                : '#FFFFFF',
+                            padding: '9px 18px',
+                            borderRadius: '7px',
+                            cursor:
+                              f.statut === 'Transféré'
+                                ? 'default'
+                                : 'pointer',
+                            fontWeight: 700,
+                            fontSize: '14px',
+                          }}
+                        >
+                          {envoiEnCours === f.id
+                            ? 'Envoi...'
+                            : f.statut === 'Transféré'
+                            ? 'Déjà envoyé'
+                            : '📤 Envoyer PAD'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* BOUTON RETOUR */}
+        {onPrecedent && (
+          <button
+            type="button"
+            onClick={onPrecedent}
+            style={{
+              padding: '13px 25px',
+              borderRadius: '10px',
+              border: `1px solid ${couleurs.bordure}`,
+              background: 'transparent',
+              color: couleurs.texte,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: '15px',
+            }}
+          >
+            ← Retour
           </button>
-        </form>
+        )}
+
       </div>
-
-      {/* Liste des fichiers */}
-      <div style={cardStyle}>
-        <h3 style={{ marginTop: 0 }}>Fichiers enregistrés</h3>
-
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #E2E8F0' }}>
-              <th style={{ padding: '0.6rem' }}>Fichier</th>
-              <th style={{ padding: '0.6rem' }}>Ligne</th>
-              <th style={{ padding: '0.6rem' }}>Statut</th>
-              <th style={{ padding: '0.6rem' }}>Chemin PAD</th>
-              <th style={{ padding: '0.6rem' }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {fichiers.length === 0 && (
-              <tr>
-                <td colSpan={5} style={{ padding: '1rem', color: '#94A3B8' }}>
-                  Aucun fichier pour le moment.
-                </td>
-              </tr>
-            )}
-
-            {fichiers.map((f) => {
-              const s = STATUT_STYLE[f.statut] || STATUT_STYLE.Disponible;
-              const Icon = s.icon;
-
-              return (
-                <tr key={f.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                  <td style={{ padding: '0.6rem', fontWeight: 600 }}>
-                    {f.nomFichier}
-                  </td>
-                  <td style={{ padding: '0.6rem' }}>#{f.ligne}</td>
-                  <td style={{ padding: '0.6rem' }}>
-                    <span
-                      style={{
-                        backgroundColor: s.bg,
-                        color: s.color,
-                        padding: '0.3rem 0.7rem',
-                        borderRadius: '999px',
-                        fontSize: '0.85rem',
-                        fontWeight: 700,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.3rem',
-                      }}
-                    >
-                      <Icon size={14} /> {f.statut}
-                    </span>
-                  </td>
-                  <td style={{ padding: '0.6rem', color: '#64748B' }}>
-                    {f.cheminPAD || '—'}
-                  </td>
-                  <td style={{ padding: '0.6rem', textAlign: 'right' }}>
-                    <button
-                      onClick={() => handleEnvoyerPAD(f)}
-                      disabled={
-                        envoiEnCours === f.id || f.statut === 'Transféré'
-                      }
-                      style={{
-                        backgroundColor:
-                          f.statut === 'Transféré' ? '#E2E8F0' : mainColor,
-                        color: f.statut === 'Transféré' ? '#64748B' : '#FFF',
-                        border: 'none',
-                        padding: '0.5rem 0.9rem',
-                        borderRadius: '8px',
-                        fontWeight: 700,
-                        cursor:
-                          f.statut === 'Transféré' ? 'default' : 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                      }}
-                    >
-                      {envoiEnCours === f.id ? (
-                        <RefreshCw size={16} className="spin" />
-                      ) : (
-                        <UploadCloud size={16} />
-                      )}
-                      {f.statut === 'Transféré'
-                        ? 'Déjà envoyé'
-                        : 'Envoyer vers PAD'}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <style>{`
-        .spin { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   );
 }

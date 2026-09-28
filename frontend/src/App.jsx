@@ -58,7 +58,8 @@ function App() {
 
   const [commandeAEditer, setCommandeAEditer] = useState(null);
   const [etapeInitialCommandes, setEtapeInitialCommandes] = useState(1);
-
+    // Commande sélectionnée pour "Gérer l'audio"
+  const [commandeIdAudio, setCommandeIdAudio] = useState(null);
   // =========================================================
   // UTILISATEUR CONNECTÉ
   // =========================================================
@@ -984,7 +985,6 @@ function App() {
       {/* =====================================================
           APPLICATION
       ===================================================== */}
-
       {page === 'app' && (
 
         <div
@@ -1005,18 +1005,37 @@ function App() {
             onLogout={() =>
               setShowLogoutConfirm(true)
             }
-            
           />
+
           {activeTab === 'commandes' && (
             <Commandes
               darkMode={darkMode}
               etapeInitial={etapeInitialCommandes}
-              onNouvelleCommande={ouvrirNouvelleCommande}
-              onModifierCommande={modifierCommande}
-              onFactureGeneree={() => {
-                setEtapeInitialCommandes(1);
+              onFactureGeneree={(facture) => {
                 setActiveTab('factures');
               }}
+              onGererAudio={(commande) => {
+                setCommandeIdAudio(commande.id);
+                setActiveTab('fichiers-audio');
+              }}
+            />
+          )}
+
+          {activeTab === 'fichiers-audio' && (
+            <FichiersAudio
+              darkMode={darkMode}
+              commandeId={commandeIdAudio}
+              onPrecedent={() => {
+                setCommandeIdAudio(null);
+                setActiveTab('commandes');
+              }}
+            />
+          )}
+
+          {activeTab === 'programmation' && (
+            <Programmation
+              darkMode={darkMode}
+              onPrecedent={() => setActiveTab('fichiers-audio')}
             />
           )}
 
@@ -1029,6 +1048,7 @@ function App() {
               }}
             />
           )}
+
         </div>
       )}
 

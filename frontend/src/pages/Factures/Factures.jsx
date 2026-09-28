@@ -8,6 +8,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
   const [facturesArchivees, setFacturesArchivees] = useState([]);
   const [vue, setVue] = useState('actives');
   const [moisFiltre, setMoisFiltre] = useState('');
+  const [anneeFiltre, setAnneeFiltre] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
 
@@ -66,15 +67,18 @@ export default function Factures({ darkMode = false, onPrecedent }) {
   }, [facturesArchivees]);
 
   // =========================================================
-  // FILTRE MOIS
+  // FILTRE MOIS + ANNÉE
   // =========================================================
-  const filtrerParMois = (liste) => {
-    if (!moisFiltre) return liste;
+  const filtrer = (liste) => {
     return liste.filter((f) => {
+      if (!f.dateFacture) return false;
       const d = new Date(f.dateFacture);
-      const annee = d.getFullYear();
+      const annee = String(d.getFullYear());
       const mois = String(d.getMonth() + 1).padStart(2, '0');
-      return `${annee}-${mois}` === moisFiltre;
+
+      if (anneeFiltre && annee !== anneeFiltre) return false;
+      if (moisFiltre && mois !== moisFiltre) return false;
+      return true;
     });
   };
 
@@ -82,7 +86,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
   // PAGINATION
   // =========================================================
   const listeComplete =
-    vue === 'actives' ? filtrerParMois(factures) : filtrerParMois(archiveTriee);
+    vue === 'actives' ? filtrer(factures) : filtrer(archiveTriee);
 
   const nombrePages = Math.max(1, Math.ceil(listeComplete.length / PAR_PAGE));
   const pageActuelle = Math.min(page, nombrePages);
@@ -94,7 +98,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
 
   useEffect(() => {
     setPage(1);
-  }, [vue, moisFiltre]);
+  }, [vue, moisFiltre, anneeFiltre]);
 
   // =========================================================
   // MONTANT TOTAL
@@ -123,48 +127,329 @@ export default function Factures({ darkMode = false, onPrecedent }) {
     }
   };
 
+  const supprimerDefinitivement = async (id) => {
+    if (
+      !window.confirm(
+        '⚠️ Supprimer DÉFINITIVEMENT cette facture ? Cette action est irréversible.'
+      )
+    )
+      return;
+
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_BASE_URL}/factures/${id}/`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur lors de la suppression');
+      }
+
+      // Retirer de la liste locale
+      setFacturesArchivees((anciennes) =>
+        anciennes.filter((f) => f.id !== id)
+      );
+    } catch (err) {
+      console.error(err);
+      alert('Impossible de supprimer définitivement la facture.');
+    }
+  };
+
+  // =========================================================
+  // CONVERSION NOMBRE → LETTRES (Français)
+  // =========================================================
+  const nombreEnLettres = (nombre) => {
+    const n = Math.floor(Number(nombre) || 0);
+
+    if (n === 0) return 'zéro ariary';
+
+    const unites = [
+      '', 'un', 'deux', 'trois', 'quatre', 'cinq',
+      'six', 'sept', 'huit', 'neuf', 'dix',
+      'onze', 'douze', 'treize', 'quatorze', 'quinze',
+      'seize', 'dix-sept', 'dix-huit', 'dix-neuf',
+    ];
+
+    const dizaines = [
+      '', '', 'vingt', 'trente', 'quarante',
+      'cinquante', 'soixante', 'soixante', 'quatre-vingt', 'quatre-vingt',
+    ];
+
+    const convertirCentaine = (nb) => {
+      if (nb === 0) return '';
+
+      const c = Math.floor(nb / 100);
+      const reste = nb % 100;
+      let texte = '';
+
+      if (c > 0) {
+        if (c === 1) {
+          texte = 'cent';
+        } else {
+          texte = `${unites[c]} cent${reste === 0 && c > 1 ? 's' : ''}`;
+        }
+      }
+
+      if (reste > 0) {
+        if (texte) texte += ' ';
+        if (reste < 20) {
+          texte += unites[reste];
+        } else {
+          const d = Math.floor(reste / 10);
+          const u = reste % 10;
+
+          if (d === 7 || d === 9) {
+            texte += `${dizaines[d]}-${unites[10 + u]}`;
+          } else {
+            texte += dizaines[d];
+            if (u === 1 && d !== 8) {
+              texte += ' et un';
+            } else if (u > 0) {
+              texte += `-${unites[u]}`;
+            }
+          }
+        }
+      }
+
+      return texte;
+    };
+
+    const milliards = Math.floor(n / 1000000000);
+    const millions = Math.floor((n % 1000000000) / 1000000);
+    const milliers = Math.floor((n % 1000000) / 1000);
+    const reste = n % 1000;
+
+    let texte = '';
+
+    if (milliards > 0) {
+      texte += `${convertirCentaine(milliards)} milliard${milliards > 1 ? 's' : ''}`;
+    }
+    if (millions > 0) {
+      if (texte) texte += ' ';
+      texte += `${convertirCentaine(millions)} million${millions > 1 ? 's' : ''}`;
+    }
+    if (milliers > 0) {
+      if (texte) texte += ' ';
+      if (milliers === 1) {
+        texte += 'mille';
+      } else {
+        texte += `${convertirCentaine(milliers)} mille`;
+      }
+    }
+    if (reste > 0) {
+      if (texte) texte += ' ';
+      texte += convertirCentaine(reste);
+    }
+
+    return `${texte} ariary`;
+  };
+
+  // =========================================================
+  // IMPRESSION FACTURE
+  // =========================================================
   const imprimerFacture = (facture) => {
     const w = window.open('', '_blank');
+
+    const maintenant = new Date();
+    const dateStr = maintenant.toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const heureStr = maintenant.toLocaleTimeString('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const lignes = Array.isArray(facture.lignes) ? facture.lignes : [];
+    const montantTotal = Number(facture.montantTotal || 0);
+    const montantLettres = nombreEnLettres(montantTotal);
+
+    const lignesHTML = lignes
+      .map(
+        (l) => `
+        <tr>
+          <td style="text-align:center;">${l.nbr}</td>
+          <td>${l.service_nom || l.tarif_libelle || '-'}</td>
+          <td style="text-align:right;">${Number(l.prixUnitaire).toLocaleString('fr-FR')} Ar</td>
+          <td style="text-align:right;">${Number(l.montant).toLocaleString('fr-FR')} Ar</td>
+        </tr>
+      `
+      )
+      .join('');
+
     w.document.write(`
       <html>
         <head>
           <title>${facture.numeroFacture}</title>
           <style>
-            body { font-family: Arial; padding: 40px; }
-            h1 { color: #007A4D; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ccc; padding: 12px; text-align: left; font-size: 16px; }
-            .total { font-size: 24px; font-weight: bold; color: #007A4D; text-align: right; margin-top: 20px; }
+            * { box-sizing: border-box; }
+            body {
+              font-family: 'Times New Roman', serif;
+              padding: 40px 50px;
+              color: #000;
+              font-size: 14px;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              margin-bottom: 25px;
+            }
+            .header-left {
+              font-size: 13px;
+              line-height: 1.5;
+            }
+            .header-left .radio {
+              font-size: 18px;
+              font-weight: bold;
+              color: #007A4D;
+              margin-bottom: 4px;
+            }
+            .header-right {
+              text-align: right;
+              font-size: 13px;
+              line-height: 1.6;
+            }
+            .header-right .facture-num {
+              font-weight: bold;
+              font-size: 14px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+              font-size: 14px;
+            }
+            th, td {
+              border: 1px solid #000;
+              padding: 8px 10px;
+              text-align: left;
+            }
+            th {
+              background-color: #F0F0F0;
+              font-weight: bold;
+              text-align: center;
+            }
+            .total-ligne td {
+              font-weight: bold;
+              text-align: right;
+            }
+            .arrete {
+              margin-top: 25px;
+              font-size: 14px;
+              line-height: 1.6;
+            }
+            .signatures {
+              display: flex;
+              justify-content: space-between;
+              margin-top: 60px;
+              font-size: 14px;
+            }
+            .signature-bloc {
+              text-align: center;
+              width: 45%;
+            }
+            .signature-ligne {
+              margin-top: 50px;
+              border-top: 1px solid #000;
+              padding-top: 5px;
+            }
           </style>
         </head>
         <body>
-          <h1>RADIO TSIRY</h1>
-          <h2>FACTURE ${facture.numeroFacture}</h2>
-          <p><strong>Client :</strong> ${facture.client_nom || '-'}</p>
-          <p><strong>Date :</strong> ${new Date(facture.dateFacture).toLocaleString('fr-FR')}</p>
+
+          <div class="header">
+            <div class="header-left">
+              <div class="radio">RADIO TSIRY</div>
+              <div>Ecar Diosezy Fianarantsoa</div>
+              <div>FM 105</div>
+              <div>ambalapaiso-Ambony</div>
+              <div>Fianarantsoa (301)</div>
+              <div>Tel : 75 522 53</div>
+              <div>radiotsiry@gmail.com</div>
+            </div>
+            <div class="header-right">
+              <div>Fianarantsoa le ${dateStr} à ${heureStr}</div>
+              <div class="facture-num" style="margin-top:10px;">
+                FACTURE N° : ${facture.numeroFacture || '-'}
+              </div>
+              <div style="margin-top:8px;">
+                Doit : ${facture.client_nom || '-'}
+              </div>
+              <div>
+                Tel : ${facture.client_telephone || '-'}
+              </div>
+            </div>
+          </div>
+
           <table>
-            <tr><th>Montant</th><th>Statut</th></tr>
-            <tr><td>${Number(facture.montantTotal).toLocaleString('fr-FR')} Ar</td><td>${facture.statut}</td></tr>
+            <thead>
+              <tr>
+                <th style="width:80px;">Nbr</th>
+                <th>Désignation</th>
+                <th style="width:150px;">P.U</th>
+                <th style="width:170px;">Montant</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lignesHTML}
+              <tr class="total-ligne">
+                <td></td>
+                <td></td>
+                <td>TOTAL :</td>
+                <td>${montantTotal.toLocaleString('fr-FR')} Ar</td>
+              </tr>
+            </tbody>
           </table>
-          <p class="total">TOTAL : ${Number(facture.montantTotal).toLocaleString('fr-FR')} Ar</p>
+
+          <div class="arrete">
+            Arrêté la présente facture à la somme de :<br/>
+            <strong>${montantLettres}</strong>
+          </div>
+
+          <div class="signatures">
+            <div class="signature-bloc">
+              <div>Le client</div>
+              <div class="signature-ligne"></div>
+            </div>
+            <div class="signature-bloc">
+              <div>Le responsable</div>
+              <div class="signature-ligne"></div>
+            </div>
+          </div>
+
         </body>
       </html>
     `);
+
     w.document.close();
+    w.focus();
     w.print();
   };
 
-  const exporterPDF = (mois) => {
-    const url = mois
-      ? `${API_BASE_URL}/factures/export-pdf/?mois=${mois}`
-      : `${API_BASE_URL}/factures/export-pdf/`;
+  // =========================================================
+  // EXPORTS PDF / EXCEL (avec filtre mois + année)
+  // =========================================================
+  const construireQuery = () => {
+    const params = new URLSearchParams();
+    if (anneeFiltre) params.append('annee', anneeFiltre);
+    if (moisFiltre) params.append('mois', moisFiltre);
+    const q = params.toString();
+    return q ? `?${q}` : '';
+  };
+
+  const exporterPDF = () => {
+    const url = `${API_BASE_URL}/factures/export-pdf/${construireQuery()}`;
     window.open(url, '_blank');
   };
 
-  const exporterExcel = (mois) => {
-    const url = mois
-      ? `${API_BASE_URL}/factures/export-excel/?mois=${mois}`
-      : `${API_BASE_URL}/factures/export-excel/`;
+  const exporterExcel = () => {
+    const url = `${API_BASE_URL}/factures/export-excel/${construireQuery()}`;
     window.open(url, '_blank');
   };
 
@@ -243,12 +528,13 @@ export default function Factures({ darkMode = false, onPrecedent }) {
             alignItems: 'center',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <label style={{ fontSize: '16px', fontWeight: 700 }}>
-              Filtrer par mois :
+              Filtrer par :
             </label>
-            <input
-              type="month"
+
+            {/* MOIS */}
+            <select
               value={moisFiltre}
               onChange={(e) => setMoisFiltre(e.target.value)}
               style={{
@@ -258,12 +544,74 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                 background: darkMode ? '#18181B' : '#FFF',
                 color: couleurs.texte,
                 fontSize: '16px',
+                cursor: 'pointer',
               }}
-            />
+            >
+              <option value="">-- Mois --</option>
+              <option value="01">Janvier</option>
+              <option value="02">Février</option>
+              <option value="03">Mars</option>
+              <option value="04">Avril</option>
+              <option value="05">Mai</option>
+              <option value="06">Juin</option>
+              <option value="07">Juillet</option>
+              <option value="08">Août</option>
+              <option value="09">Septembre</option>
+              <option value="10">Octobre</option>
+              <option value="11">Novembre</option>
+              <option value="12">Décembre</option>
+            </select>
+
+            {/* ANNÉE */}
+            <select
+              value={anneeFiltre}
+              onChange={(e) => setAnneeFiltre(e.target.value)}
+              style={{
+                padding: '10px 14px',
+                borderRadius: '9px',
+                border: `1px solid ${couleurs.bordure}`,
+                background: darkMode ? '#18181B' : '#FFF',
+                color: couleurs.texte,
+                fontSize: '16px',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">-- Année --</option>
+              <option value="2024">2024</option>
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+              <option value="2027">2027</option>
+              <option value="2028">2028</option>
+              <option value="2029">2029</option>
+              <option value="2030">2030</option>
+            </select>
+
+            {/* RESET */}
+            {(moisFiltre || anneeFiltre) && (
+              <button
+                onClick={() => {
+                  setMoisFiltre('');
+                  setAnneeFiltre('');
+                }}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '9px',
+                  border: `1px solid ${couleurs.bordure}`,
+                  background: 'transparent',
+                  color: couleurs.texteSecondaire,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                }}
+              >
+                ✕ Effacer
+              </button>
+            )}
           </div>
+
           <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
             <button
-              onClick={() => exporterPDF(moisFiltre)}
+              onClick={exporterPDF}
               style={{
                 padding: '11px 20px',
                 borderRadius: '9px',
@@ -278,7 +626,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
               Exporter PDF
             </button>
             <button
-              onClick={() => exporterExcel(moisFiltre)}
+              onClick={exporterExcel}
               style={{
                 padding: '11px 20px',
                 borderRadius: '9px',
@@ -338,10 +686,17 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                 <tr style={{ backgroundColor: darkMode ? '#1E293B' : '#F1F5F9' }}>
                   <th style={thStyle}>Client</th>
                   <th style={thStyle}>Date</th>
+                  <th style={thStyle}>Service</th>
+                  <th style={thStyle}>Tarif</th>
                   <th style={thStyle}>Montant</th>
                   <th style={thStyle}>Statut</th>
                   {vue === 'archive' ? (
-                    <th style={thStyle}>Supprimée le</th>
+                    <>
+                      <th style={thStyle}>Supprimée le</th>
+                      <th style={{ ...thStyle, textAlign: 'center', width: '240px' }}>
+                        Actions
+                      </th>
+                    </>
                   ) : (
                     <th style={{ ...thStyle, textAlign: 'center', width: '240px' }}>
                       Actions
@@ -361,6 +716,10 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                         ? new Date(f.dateFacture).toLocaleDateString('fr-FR')
                         : '-'}
                     </td>
+                    <td style={tdStyle}>{f.service_nom || '-'}</td>
+                    <td style={tdStyle}>
+                      {Number(f.tarif_prix || 0).toLocaleString('fr-FR')} Ar
+                    </td>
                     <td style={tdStyle}>{formatMontant(f.montantTotal)} Ar</td>
                     <td style={tdStyle}>
                       <span
@@ -377,12 +736,23 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                         {f.statut}
                       </span>
                     </td>
+
                     {vue === 'archive' ? (
-                      <td style={tdStyle}>
-                        {f.dateSuppression
-                          ? new Date(f.dateSuppression).toLocaleString('fr-FR')
-                          : '-'}
-                      </td>
+                      <>
+                        <td style={tdStyle}>
+                          {f.dateSuppression
+                            ? new Date(f.dateSuppression).toLocaleString('fr-FR')
+                            : '-'}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <button
+                            onClick={() => supprimerDefinitivement(f.id)}
+                            style={actionButtonDanger()}
+                          >
+                            🗑 Supprimer définitivement
+                          </button>
+                        </td>
+                      </>
                     ) : (
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <div
@@ -414,7 +784,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
         </div>
 
         {/* ============================================================ */}
-        {/* ZONE AMBANY : TOTAL + PAGINATION + PRÉCÉDENT                */}
+        {/* ZONE AMBANY : TOTAL + PAGINATION                             */}
         {/* ============================================================ */}
 
         {listeComplete.length > 0 && (
@@ -448,97 +818,67 @@ export default function Factures({ darkMode = false, onPrecedent }) {
           </div>
         )}
 
-        {/* PAGINATION + PRÉCÉDENT */}
-        <div
-          style={{
-            marginTop: '25px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '15px',
-            flexWrap: 'wrap',
-          }}
-        >
-          {/* PRÉCÉDENT (retour à Étape 3) */}
-          {onPrecedent && (
+        {/* PAGINATION */}
+        {listeComplete.length > PAR_PAGE && (
+          <div
+            style={{
+              marginTop: '25px',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: '15px',
+              flexWrap: 'wrap',
+            }}
+          >
             <button
-              onClick={onPrecedent}
+              onClick={() => {
+                if (pageActuelle > 1) {
+                  setPage(pageActuelle - 1);
+                }
+              }}
+              disabled={pageActuelle <= 1}
               style={{
                 padding: '13px 25px',
                 borderRadius: '10px',
                 border: `1px solid ${couleurs.bordure}`,
                 background: 'transparent',
-                color: couleurs.texte,
+                color: pageActuelle <= 1 ? '#9CA3AF' : couleurs.texte,
                 fontWeight: 700,
-                cursor: 'pointer',
+                cursor: pageActuelle <= 1 ? 'not-allowed' : 'pointer',
                 fontSize: '16px',
               }}
             >
-              ← Précédent
+              ← Page précédente
             </button>
-          )}
 
-          {/* PAGINATION */}
-          {listeComplete.length > PAR_PAGE && (
-            <div
+            <span style={{ fontSize: '16px', fontWeight: 700 }}>
+              Page {pageActuelle} / {nombrePages}
+            </span>
+
+            <button
+              onClick={() => {
+                if (pageActuelle < nombrePages) {
+                  setPage(pageActuelle + 1);
+                }
+              }}
+              disabled={pageActuelle >= nombrePages}
               style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                gap: '15px',
-                marginLeft: 'auto',
+                padding: '13px 25px',
+                borderRadius: '10px',
+                border: 'none',
+                background:
+                  pageActuelle >= nombrePages ? '#9CA3AF' : couleurs.vert,
+                color: '#FFF',
+                fontWeight: 700,
+                cursor:
+                  pageActuelle >= nombrePages ? 'not-allowed' : 'pointer',
+                fontSize: '16px',
               }}
             >
-              <button
-                onClick={() => {
-                  if (pageActuelle > 1) {
-                    setPage(pageActuelle - 1);
-                  }
-                }}
-                disabled={pageActuelle <= 1}
-                style={{
-                  padding: '13px 25px',
-                  borderRadius: '10px',
-                  border: `1px solid ${couleurs.bordure}`,
-                  background: 'transparent',
-                  color: pageActuelle <= 1 ? '#9CA3AF' : couleurs.texte,
-                  fontWeight: 700,
-                  cursor: pageActuelle <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '16px',
-                }}
-              >
-                ← Page précédente
-              </button>
-
-              <span style={{ fontSize: '16px', fontWeight: 700 }}>
-                Page {pageActuelle} / {nombrePages}
-              </span>
-
-              <button
-                onClick={() => {
-                  if (pageActuelle < nombrePages) {
-                    setPage(pageActuelle + 1);
-                  }
-                }}
-                disabled={pageActuelle >= nombrePages}
-                style={{
-                  padding: '13px 25px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  background:
-                    pageActuelle >= nombrePages ? '#9CA3AF' : couleurs.vert,
-                  color: '#FFF',
-                  fontWeight: 700,
-                  cursor:
-                    pageActuelle >= nombrePages ? 'not-allowed' : 'pointer',
-                  fontSize: '16px',
-                }}
-              >
-                Page suivante →
-              </button>
-            </div>
-          )}
-        </div>
+              Page suivante →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

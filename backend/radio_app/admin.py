@@ -38,7 +38,11 @@ class LigneCommandeInline(admin.TabularInline):
 
 @admin.register(Commande)
 class CommandeAdmin(admin.ModelAdmin):
-    list_display = ('id', 'client', 'utilisateur', 'dateCommande', 'statut', 'montantTotal')
+    list_display = (
+        'id', 'client', 'utilisateur', 'dateCommande',
+        'dateDebut', 'dateFin',
+        'statut', 'montantTotal'
+    )
     list_filter = ('statut',)
     inlines = [LigneCommandeInline]
 
@@ -55,12 +59,18 @@ class DocumentAdmin(admin.ModelAdmin):
 
 @admin.register(FichierAudio)
 class FichierAudioAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nomFichier', 'ligne', 'statut')
+    list_display = ('id', 'nomFichier', 'commande', 'statut')
+    list_filter = ('statut',)
+    search_fields = ('nomFichier',)
 
 
 @admin.register(Programmation)
 class ProgrammationAdmin(admin.ModelAdmin):
-    list_display = ('id', 'fichierAudio', 'dateDiffusion', 'heureDiffusion', 'ordreDiffusion', 'statut')
+    list_display = (
+        'id', 'fichierAudio', 'dateDiffusion',
+        'heureDiffusion', 'ordreDiffusion', 'statut'
+    )
+    list_filter = ('statut', 'dateDiffusion')
 
 
 @admin.register(Facture)

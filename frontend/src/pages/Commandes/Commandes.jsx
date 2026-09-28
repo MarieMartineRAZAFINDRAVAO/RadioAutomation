@@ -2,8 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-function Commandes({ darkMode = false, onFactureGeneree, etapeInitial = 1 }) {
-  // =========================================================
+function Commandes({
+  darkMode = false,
+  onFactureGeneree,
+  etapeInitial = 1,
+  onGererAudio,
+}) {
+ // =========================================================
   // ÉTAPES
   // 1 = Client
   // 2 = Service + Tarif
@@ -23,6 +28,26 @@ function Commandes({ darkMode = false, onFactureGeneree, etapeInitial = 1 }) {
   // =========================================================
   const [interfaceClient, setInterfaceClient] = useState('liste');
 
+
+  
+  // =========================================================
+  // ONGLET : 'nouvelle' | 'liste'
+  // =========================================================
+  const [onglet, setOnglet] = useState('nouvelle');
+
+  // =========================================================
+  // LISTE DES COMMANDES + GÉRER L'AUDIO
+  // =========================================================
+  const [commandesListe, setCommandesListe] = useState([]);
+  const [loadingCommandes, setLoadingCommandes] = useState(false);
+  const [commandeAudio, setCommandeAudio] = useState(null);
+  const [fichiersAudio, setFichiersAudio] = useState([]);
+  const [loadingFichiers, setLoadingFichiers] = useState(false);
+  const [nomFichierAudio, setNomFichierAudio] = useState('');
+  const [cheminOrdinateurAudio, setCheminOrdinateurAudio] = useState('');
+  const [uploadLoading, setUploadLoading] = useState(false);
+    // Modal "Voir les dates"
+  const [commandeDatesDetail, setCommandeDatesDetail] = useState(null);
   // =========================================================
   // FORMULAIRE CLIENT
   // =========================================================
@@ -60,6 +85,31 @@ function Commandes({ darkMode = false, onFactureGeneree, etapeInitial = 1 }) {
   const [observationCommande, setObservationCommande] = useState('');
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingTarifs, setLoadingTarifs] = useState(false);
+
+  // =========================================================
+// DATES COMMANDE (liste des dates entre dateDebut et dateFin)
+// =========================================================
+const datesCommande = useMemo(() => {
+  if (!dateDebut || !dateFin || dateDebut > dateFin) {
+    return [];
+  }
+
+  const dates = [];
+  const courant = new Date(`${dateDebut}T00:00:00`);
+  const dernier = new Date(`${dateFin}T00:00:00`);
+
+  while (courant <= dernier) {
+    const annee = courant.getFullYear();
+    const mois = String(courant.getMonth() + 1).padStart(2, '0');
+    const jour = String(courant.getDate()).padStart(2, '0');
+
+    dates.push(`${annee}-${mois}-${jour}`);
+
+    courant.setDate(courant.getDate() + 1);
+  }
+
+  return dates;
+}, [dateDebut, dateFin]);
 
   // =========================================================
   // ÉTAPE 3 : COMMANDE + FACTURE
@@ -222,6 +272,157 @@ const gererRechercheClient = (event) => {
     chargerClients();
   }, []);
 
+
+  // =========================================================
+  // CHARGER LES COMMANDES
+  // =========================================================
+  const chargerCommandes = async () => {
+    try {
+      setLoadingCommandes(true);
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_BASE_URL}/commandes/`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!response.ok) throw new Error('Erreur');
+      const data = await response.json();
+      const liste = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+        ? data.results
+        : [];
+      setCommandesListe(liste);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingCommandes(false);
+    }
+  };
+    // =========================================================
+  // SUPPRIMER UNE COMMANDE
+  // =========================================================
+  const supprimerCommande = async (cmd) => {
+    const confirmation = window.confirm(
+      `Voulez-vous vraiment supprimer la commande CMD-${String(cmd.id).padStart(4, '0')} ?`
+    );
+
+    if (!confirmation) return;
+
+    try {
+      setError('');
+      await fetchJson(`${API_BASE_URL}/commandes/${cmd.id}/`, {
+        method: 'DELETE',
+      });
+
+      setCommandesListe((anciennes) =>
+        anciennes.filter((c) => c.id !== cmd.id)
+      );
+
+      setSuccessMessage('Commande supprimée avec succès.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Impossible de supprimer la commande.');
+    }
+  };
+
+  // =========================================================
+  // CHARGER FICHIERS AUDIO D'UNE COMMANDE
+  // =========================================================
+  const chargerFichiersAudio = async (commandeId) => {
+    try {
+      setLoadingFichiers(true);
+      const data = await fetchJson(
+        `${API_BASE_URL}/fichiers-audio/par-commande/${commandeId}/`
+      );
+      const liste = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.results)
+        ? data.results
+        : [];
+      setFichiersAudio(liste);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingFichiers(false);
+    }
+  };
+
+  // =========================================================
+  // OUVRIR GÉRER L'AUDIO
+  // =========================================================
+    const ouvrirGererAudio = (commande) => {
+    // Rediriger vers FichiersAudio avec le commandeId
+    if (onGererAudio) {
+      onGererAudio(commande);
+    }
+  };
+
+  // =========================================================
+  // AJOUTER FICHIER AUDIO
+  // =========================================================
+  const ajouterFichierAudio = async (e) => {
+    e.preventDefault();
+    if (!commandeAudio) return;
+    if (!nomFichierAudio.trim() || !cheminOrdinateurAudio.trim()) {
+      setError('Veuillez remplir tous les champs.');
+      return;
+    }
+    try {
+      setUploadLoading(true);
+      setError('');
+      await fetchJson(`${API_BASE_URL}/fichiers-audio/`, {
+        method: 'POST',
+        body: JSON.stringify({
+          commande: commandeAudio.id,
+          nomFichier: nomFichierAudio.trim(),
+          cheminOrdinateur: cheminOrdinateurAudio.trim(),
+          format: nomFichierAudio.split('.').pop() || 'mp3',
+          statut: 'Disponible',
+        }),
+      });
+      setNomFichierAudio('');
+      setCheminOrdinateurAudio('');
+      setSuccessMessage('Fichier audio ajouté.');
+      chargerFichiersAudio(commandeAudio.id);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Impossible d'ajouter le fichier audio.");
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  // =========================================================
+  // ENVOYER FICHIER VERS PAD
+  // =========================================================
+  const envoyerFichierPAD = async (fichier) => {
+    try {
+      setError('');
+      await fetchJson(
+        `${API_BASE_URL}/fichiers-audio/${fichier.id}/envoyer-pad/`,
+        { method: 'POST', body: JSON.stringify({}) }
+      );
+      setSuccessMessage('Fichier envoyé vers le PAD.');
+      chargerFichiersAudio(commandeAudio.id);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Impossible d'envoyer le fichier.");
+    }
+  };
+
+  // =========================================================
+  // useEffect pour charger les commandes si onglet === 'liste'
+  // =========================================================
+  useEffect(() => {
+    if (onglet === 'liste') {
+      chargerCommandes();
+    }
+  }, [onglet]);
   // =========================================================
   // RECHERCHE DYNAMIQUE
   // =========================================================
@@ -1064,64 +1265,6 @@ const gererRechercheClient = (event) => {
     );
   };
 
-  const obtenirDatesEntre = (
-    debut,
-    fin
-  ) => {
-    if (
-      !debut ||
-      !fin ||
-      debut > fin
-    ) {
-      return [];
-    }
-
-    const dates = [];
-
-    const courant = new Date(
-      `${debut}T00:00:00`
-    );
-
-    const dernier = new Date(
-      `${fin}T00:00:00`
-    );
-
-    while (
-      courant <= dernier
-    ) {
-      const annee =
-        courant.getFullYear();
-
-      const mois = String(
-        courant.getMonth() + 1
-      ).padStart(2, '0');
-
-      const jour = String(
-        courant.getDate()
-      ).padStart(2, '0');
-
-      dates.push(
-        `${annee}-${mois}-${jour}`
-      );
-
-      courant.setDate(
-        courant.getDate() + 1
-      );
-    }
-
-    return dates;
-  };
-
-  const datesCommande =
-    useMemo(
-      () =>
-        obtenirDatesEntre(
-          dateDebut,
-          dateFin
-        ),
-      [dateDebut, dateFin]
-    );
-
   // =========================================================
   // INITIALISER LES HEURES POUR CHAQUE DATE
   // =========================================================
@@ -1327,184 +1470,110 @@ const gererRechercheClient = (event) => {
     }
 
     setError('');
-    setEtape(3);
 
     return true;
   };
 
+     // =========================================================
+  // AJOUTER LA COMMANDE
   // =========================================================
-  // CRÉER LA COMMANDE ET GÉNÉRER LA FACTURE
-  // =========================================================
-  const genererFacture =
-    async () => {
-      if (!validerEtape2()) {
-        return;
+    const ajouterCommande = async () => {
+    if (!validerEtape2()) return;
+
+    try {
+      setGenerationFactureLoading(true);
+      setError('');
+      setSuccessMessage('');
+
+      const clientId = clientSelectionne.idClient ?? clientSelectionne.id;
+      const serviceId = serviceSelectionne.idService ?? serviceSelectionne.id;
+      const tarifId = tarifSelectionne.idTarif ?? tarifSelectionne.id;
+
+      if (!clientId || !serviceId || !tarifId) {
+        throw new Error('Identifiant client, service ou tarif introuvable.');
       }
 
-      try {
-        setGenerationFactureLoading(
-          true
-        );
+      const utilisateurId = 1;
 
-        setError('');
-        setSuccessMessage('');
+      // ═══ Lignes : une par diffusion (sans date) ═══
+      const lignes = [];
 
-        const clientId =
-          clientSelectionne.idClient ??
-          clientSelectionne.id;
+      datesCommande.forEach((date) => {
+        (heuresParDate[date] || []).forEach(() => {
+          lignes.push({
+            service: serviceId,
+            tarif: tarifId,
+            designation:
+              tarifSelectionne.libelle ||
+              serviceSelectionne.nomService ||
+              'Service radio',
+            quantite: 1,
+            prixUnitaire: prixUnitaire,
+          });
+        });
+      });
 
-        const serviceId =
-          serviceSelectionne.idService ??
-          serviceSelectionne.id;
+      // ═══ Programmations : une par diffusion (avec date + heure) ═══
+      const programmations = [];
 
-        const tarifId =
-          tarifSelectionne.idTarif ??
-          tarifSelectionne.id;
+      datesCommande.forEach((date) => {
+        (heuresParDate[date] || []).forEach((heure) => {
+          programmations.push({
+            dateDiffusion: date,
+            heureDiffusion:
+              heure.length === 5 ? `${heure}:00` : heure,
+          });
+        });
+      });
 
-        if (
-          !clientId ||
-          !serviceId ||
-          !tarifId
-        ) {
-          throw new Error(
-            'Identifiant client, service ou tarif introuvable.'
-          );
-        }
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`${API_BASE_URL}/commandes/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          client: clientId,
+          utilisateur: utilisateurId,
+          dateDebut: dateDebut,
+          dateFin: dateFin,
+          statut: 'En cours',
+          observation: observationCommande.trim() || null,
+          lignes: lignes,
+          programmations: programmations,   // ⬅️ AMPIDIRO
+        }),
+      });
 
-        // Utilisateur connecté
-        
-               // Utilisateur par défaut (admin)
-const utilisateurId = 1;
-
-        // =====================================================
-        // UNE LIGNE DE COMMANDE PAR HEURE DE DIFFUSION
-        // =====================================================
-        const lignes = [];
-
-        datesCommande.forEach(
-          (date) => {
-            (
-              heuresParDate[
-                date
-              ] || []
-            ).forEach(
-              (heure) => {
-                lignes.push({
-                  service:
-                    serviceId,
-
-                  tarif:
-                    tarifId,
-
-                  designation:
-                    tarifSelectionne.libelle ||
-                    serviceSelectionne.nomService ||
-                    'Service radio',
-
-                  quantite: 1,
-
-                  prixUnitaire:
-                    prixUnitaire,
-
-                  dateDebut:
-                    dateDebut,
-
-                  dateFin:
-                    dateFin,
-
-                 heureDiffusion:
-  heure.length === 5 ? `${heure}:00` : heure,
-                });
-              }
-            );
-          }
-        );
-
-        // =====================================================
-        // CRÉATION COMMANDE
-        // =====================================================
-        const commande =
-          await fetchJson(
-            `${API_BASE_URL}/commandes/`,
-            {
-              method: 'POST',
-
-              body: JSON.stringify({
-                client:
-                  clientId,
-
-                utilisateur:
-                  utilisateurId,
-
-                statut:
-                  'En cours',
-
-                observation:
-                  observationCommande.trim() ||
-                  null,
-
-                lignes:
-                  lignes,
-              }),
-            }
-          );
-
-        setCommandeCreee(
-          commande
-        );
-
-        const commandeId =
-          commande?.id;
-
-        if (!commandeId) {
-          throw new Error(
-            'La commande a été créée mais son identifiant est introuvable.'
-          );
-        }
-
-        // =====================================================
-        // GÉNÉRATION FACTURE
-        // =====================================================
-        const facture =
-          await fetchJson(
-            `${API_BASE_URL}/commandes/${commandeId}/generer-facture/`,
-            {
-              method: 'POST',
-              body: JSON.stringify(
-                {}
-              ),
-            }
-          );
-
-      setFactureGeneree(
-          facture?.facture ||
-            facture
-        );
-
-        setSuccessMessage(
-          'Commande enregistrée et facture générée avec succès.'
-        );
-
-        if (onFactureGeneree) {
-          setTimeout(() => {
-            onFactureGeneree(
-              facture?.facture || facture
-            );
-          }, 1500);
-        }
-      } catch (err) {
-        console.error(err);
-
-        setError(
-          err.message ||
-            'Erreur lors de la génération de la facture.'
-        );
-      } finally {
-        setGenerationFactureLoading(
-          false
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(
+          errData ? JSON.stringify(errData) : 'Erreur lors de la création.'
         );
       }
-    };
+
+      setSuccessMessage('Commande ajoutée avec succès.');
+
+      setEtape(1);
+      setClientSelectionne(null);
+      setServiceSelectionne(null);
+      setTarifSelectionne(null);
+      setTarifs([]);
+      setDateDebut('');
+      setDateFin('');
+      setHeuresParDate({});
+      setHeureTemporaire({});
+      setObservationCommande('');
+      setOnglet('liste');
+
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Erreur lors de l'ajout de la commande.");
+    } finally {
+      setGenerationFactureLoading(false);
+    }
+  };
 
   // =========================================================
   // NOUVELLE COMMANDE
@@ -1555,14 +1624,81 @@ const utilisateurId = 1;
     () => {
       window.print();
     };
+      // =========================================================
+  // GÉNÉRER OU VOIR LA FACTURE
+  // =========================================================
+  const genererEtVoirFacture = async (cmd) => {
+    try {
+      setError('');
+      setSuccessMessage('');
 
-  // =========================================================
-  // PASSER À L'ÉTAPE 3
-  // =========================================================
-  const passerFacture = () => {
-    validerEtape2();
+      const token = localStorage.getItem('accessToken');
+
+      const response = await fetch(
+        `${API_BASE_URL}/commandes/${cmd.id}/generer-facture/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(
+          errData
+            ? JSON.stringify(errData)
+            : 'Impossible de générer la facture.'
+        );
+      }
+
+      const facture = await response.json();
+      setSuccessMessage('Facture générée avec succès.');
+
+      // ═══ Ouvrir la page Factures (navbar) ═══
+      if (onFactureGeneree) {
+        setTimeout(() => {
+          onFactureGeneree(facture?.facture || facture);
+        }, 800);
+      }
+
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.message || 'Erreur lors de la génération de la facture.'
+      );
+    }
   };
+  // =========================================================
+  // GROUPER LES DATES D'UNE COMMANDE
+  // =========================================================
+   // =========================================================
+  // GROUPER LES DATES ET HEURES D'UNE COMMANDE
+  // =========================================================
+  const getDatesHeures = (cmd) => {
+    if (!cmd || !Array.isArray(cmd.programmations)) return [];
 
+    const map = {};
+
+    cmd.programmations.forEach((prog) => {
+      const date = prog.dateDiffusion || '-';
+      const heure = prog.heureDiffusion || '-';
+
+      if (!map[date]) map[date] = [];
+      if (!map[date].includes(heure)) map[date].push(heure);
+    });
+
+    return Object.entries(map)
+      .sort(([d1], [d2]) => d1.localeCompare(d2))
+      .map(([date, heures]) => ({
+        date: formaterDateLocale(date),
+        heures: heures.sort(),
+      }));
+  };
   // =========================================================
   // RENDU
   // =========================================================
@@ -1600,15 +1736,11 @@ const utilisateurId = 1;
           Commande
         </h1>
       </div>
-
-      {/* =====================================================
-          STEPPER
-      ====================================================== */}
+      
+        {onglet === 'nouvelle' && (
       <div
         style={{
           maxWidth: '1200px',
-          margin:
-            '0 auto 30px',
           backgroundColor:
             couleurs.carte,
           border: `1px solid ${couleurs.bordure}`,
@@ -1620,6 +1752,7 @@ const utilisateurId = 1;
             'center',
         }}
       >
+
         {/* ÉTAPE 1 */}
         <div
           style={{
@@ -1711,61 +1844,58 @@ const utilisateurId = 1;
             Service + Tarif
           </strong>
         </div>
-
-        <div
+      </div>
+      )}
+      
+        
+      {/* =====================================================
+          ONGLETS
+      ====================================================== */}
+      <div
+        style={{
+          maxWidth: '1200px',
+          margin: '0 auto 25px',
+          display: 'flex',
+          gap: '10px',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setOnglet('nouvelle')}
           style={{
-            flex: 1,
-            height: '2px',
+            padding: '12px 22px',
+            borderRadius: '10px',
+            border: 'none',
+            fontWeight: 700,
+            cursor: 'pointer',
+            fontSize: '15px',
             backgroundColor:
-              couleurs.bordure,
-            margin:
-              '0 25px',
-          }}
-        />
-
-        {/* ÉTAPE 3 */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems:
-              'center',
-            gap: '10px',
+              onglet === 'nouvelle' ? couleurs.vert : couleurs.carte,
             color:
-              etape >= 3
-                ? couleurs.vert
-                : couleurs.texteSecondaire,
+              onglet === 'nouvelle' ? '#FFFFFF' : couleurs.texte,
           }}
         >
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius:
-                '50%',
-              backgroundColor:
-                etape >= 3
-                  ? couleurs.vert
-                  : couleurs.bordure,
-              color:
-                etape >= 3
-                  ? '#FFFFFF'
-                  : couleurs.texteSecondaire,
-              display: 'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
-              fontWeight: 800,
-              fontSize: '17px',
-            }}
-          >
-            3
-          </div>
+          + Nouvelle commande
+        </button>
 
-          <strong>
-            Facture
-          </strong>
-        </div>
+        <button
+          type="button"
+          onClick={() => setOnglet('liste')}
+          style={{
+            padding: '12px 22px',
+            borderRadius: '10px',
+            border: 'none',
+            fontWeight: 700,
+            cursor: 'pointer',
+            fontSize: '15px',
+            backgroundColor:
+              onglet === 'liste' ? couleurs.vert : couleurs.carte,
+            color:
+              onglet === 'liste' ? '#FFFFFF' : couleurs.texte,
+          }}
+        >
+          📋 Liste des commandes
+        </button>
       </div>
 
       {/* =====================================================
@@ -1824,7 +1954,7 @@ const utilisateurId = 1;
           INONA NO NOTELOINA?
           TSY NISY.
       ====================================================== */}
-      {etape === 1 && (
+        {onglet === 'nouvelle' && etape === 1 && (
         <>
           {/* =================================================
               LISTE CLIENT
@@ -3037,7 +3167,7 @@ const utilisateurId = 1;
       {/* =====================================================
           ÉTAPE 2 : SERVICE + TARIF + DATES + HEURES
       ====================================================== */}
-      {etape === 2 && (
+    {onglet === 'nouvelle' && etape === 2 && (
         <div
           style={{
             maxWidth: '1200px',
@@ -3932,31 +4062,23 @@ const utilisateurId = 1;
               ← Précédent
             </button>
 
-            <button
+                       <button
               type="button"
-              onClick={
-                passerFacture
-              }
+              onClick={ajouterCommande}
+              disabled={generationFactureLoading}
               style={{
-                border:
-                  'none',
-                backgroundColor:
-                  couleurs.vert,
-                color:
-                  '#FFFFFF',
-                padding:
-                  '13px 28px',
-                borderRadius:
-                  '8px',
-                cursor:
-                  'pointer',
-                fontWeight:
-                  700,
-                fontSize:
-                  '15px',
+                border: 'none',
+                backgroundColor: couleurs.vert,
+                color: '#FFFFFF',
+                padding: '13px 28px',
+                borderRadius: '8px',
+                cursor: generationFactureLoading ? 'wait' : 'pointer',
+                fontWeight: 700,
+                fontSize: '15px',
+                opacity: generationFactureLoading ? 0.7 : 1,
               }}
             >
-              Suivant →
+              {generationFactureLoading ? 'Enregistrement...' : '➕ Ajouter'}
             </button>
           </div>
         </div>
@@ -3965,7 +4087,7 @@ const utilisateurId = 1;
       {/* =====================================================
           ÉTAPE 3 : FACTURE
       ====================================================== */}
-      {etape === 3 && (
+    {onglet === 'nouvelle' && etape === 3 && (
         <div
           style={{
             maxWidth:
@@ -4076,6 +4198,7 @@ const utilisateurId = 1;
               </div>
             </div>
           </div>
+
 
           {/* =================================================
               DÉTAIL DES DIFFUSIONS
@@ -4622,9 +4745,588 @@ const utilisateurId = 1;
         </div>
       )}
 
+      
+          
+
+      {/* =====================================================
+          ONGLET LISTE DES COMMANDES
+      ====================================================== */}
+      {onglet === 'liste' && (
+  <div
+    style={{
+      maxWidth: '1200px',
+      margin: '0 auto',
+      backgroundColor: couleurs.carte,
+      border: `1px solid ${couleurs.bordure}`,
+      borderRadius: '14px',
+      padding: '30px',
+    }}
+  >
+    <h2 style={{ marginTop: 0, fontSize: '27px', fontWeight: 800 }}>
+      Liste des commandes
+    </h2>
+
+    {loadingCommandes ? (
+      <div style={{ textAlign: 'center', padding: '40px', color: couleurs.texteSecondaire }}>
+        Chargement...
+      </div>
+    ) : commandesListe.length === 0 ? (
+      <div
+        style={{
+          textAlign: 'center',
+          padding: '45px',
+          border: `1px dashed ${couleurs.bordure}`,
+          borderRadius: '8px',
+          color: couleurs.texteSecondaire,
+        }}
+      >
+        Aucune commande enregistrée.
+      </div>
+    ) : (
+      <div
+        style={{
+          overflowX: 'auto',
+          border: `1px solid ${couleurs.bordure}`,
+          borderRadius: '9px',
+        }}
+      >
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '15px',
+          }}
+        >
+          <thead>
+            <tr
+              style={{
+                backgroundColor: couleurs.vert,
+                color: '#FFFFFF',
+              }}
+            >
+              <th style={{ padding: '15px', textAlign: 'left' }}>N° Commande</th>
+              <th style={{ padding: '15px', textAlign: 'left' }}>Client</th>
+              <th style={{ padding: '15px', textAlign: 'left' }}>Service</th>
+              <th style={{ padding: '15px', textAlign: 'left' }}>Tarif</th>
+              <th style={{ padding: '15px', textAlign: 'left' }}>Dates + Heures</th>
+              <th style={{ padding: '15px', textAlign: 'left' }}>Montant</th>
+              <th style={{ padding: '15px', textAlign: 'center' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {commandesListe.map((cmd) => {
+              const datesHeures = getDatesHeures(cmd);
+              const afficherTout = datesHeures.length <= 3;
+
+              // Récupérer service et tarif depuis les lignes
+              const premiereLigne = Array.isArray(cmd.lignes) && cmd.lignes.length > 0
+                ? cmd.lignes[0]
+                : null;
+
+              const serviceNom = premiereLigne?.service_nom || '-';
+              const tarifPrix = premiereLigne?.prixUnitaire || 0;
+
+              return (
+                <tr
+                  key={cmd.id}
+                  style={{ borderBottom: `1px solid ${couleurs.bordure}` }}
+                >
+                  <td style={{ padding: '15px', fontWeight: 700 }}>
+                    CMD-{String(cmd.id).padStart(4, '0')}
+                  </td>
+
+                  <td style={{ padding: '15px' }}>{cmd.client_nom || '-'}</td>
+
+                  <td style={{ padding: '15px' }}>{serviceNom}</td>
+
+                  <td style={{ padding: '15px' }}>
+                    {Number(tarifPrix).toLocaleString('fr-FR')} Ar
+</td>
+
+                  <td style={{ padding: '15px' }}>
+                    {datesHeures.length === 0 ? (
+                      '-'
+                    ) : afficherTout ? (
+                      // Affichage direct : 3 dates ou moins
+                      datesHeures.map((dh) => (
+                        <div key={dh.date} style={{ marginBottom: '6px' }}>
+                          <strong>{dh.date}</strong>
+                          {' : '}
+                          {dh.heures.join(', ')}
+                        </div>
+                      ))
+                    ) : (
+                      // Plus de 3 dates : bouton "Voir les dates"
+                      <div>
+                        <div style={{ marginBottom: '6px' }}>
+                          <strong>{datesHeures[0].date}</strong>
+                          {' : '}
+                          {datesHeures[0].heures.join(', ')}
+                        </div>
+                        <div
+                          style={{
+                            color: couleurs.texteSecondaire,
+                            fontSize: '13px',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          ... {datesHeures.length - 1} autres dates
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCommandeDatesDetail(cmd)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: couleurs.vert,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            fontSize: '13px',
+                            padding: 0,
+                          }}
+                        >
+                          👁 Voir les dates
+                        </button>
+                      </div>
+                    )}
+                  </td>              
+                                               {/* ═══ FACTURE_ACTIONS_START ═══ */}
+                        <td style={{ padding: '15px', textAlign: 'center', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'inline-flex', gap: '8px', justifyContent: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => ouvrirGererAudio(cmd)}
+                              style={{
+                                border: 'none',
+                                backgroundColor: couleurs.vert,
+                                color: '#FFFFFF',
+                                padding: '9px 16px',
+                                borderRadius: '7px',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: '14px',
+                              }}
+                            >
+                              🎙 Gérer l'audio
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => genererEtVoirFacture(cmd)}
+                              style={{
+                                border: 'none',
+                                backgroundColor: '#3B82F6',
+                                color: '#FFFFFF',
+                                padding: '9px 16px',
+                                borderRadius: '7px',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: '14px',
+                              }}
+                            >
+                              📄 Facture
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => supprimerCommande(cmd)}
+                              style={{
+                                border: 'none',
+                                backgroundColor: '#FEE2E2',
+                                color: '#DC2626',
+                                padding: '9px 16px',
+                                borderRadius: '7px',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: '14px',
+                              }}
+                            >
+                              🗑 Supprimer
+                            </button>
+                          </div>
+                        </td>
+                        {/* ═══ FACTURE_ACTIONS_END ═══ */}
+                    </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+)}
+
+            {/* =====================================================
+          MODAL VOIR LES DATES
+      ====================================================== */}
+      {commandeDatesDetail && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: couleurs.carte,
+              borderRadius: '16px',
+              padding: '30px',
+              width: '600px',
+              maxWidth: '95%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px',
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: '22px' }}>
+                👁 Dates — CMD-
+                {String(commandeDatesDetail.id).padStart(4, '0')}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCommandeDatesDetail(null)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: couleurs.texte,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                padding: '14px',
+                backgroundColor: couleurs.vertClair,
+                borderRadius: '8px',
+                marginBottom: '20px',
+              }}
+            >
+              <strong>Client :</strong> {commandeDatesDetail.client_nom}
+              <br />
+              <strong>Téléphone :</strong>{' '}
+              {commandeDatesDetail.client_telephone || '-'}
+            </div>
+
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '15px',
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    backgroundColor: couleurs.vert,
+                    color: '#FFFFFF',
+                  }}
+                >
+                  <th style={{ padding: '12px', textAlign: 'left' }}>Date</th>
+                  <th style={{ padding: '12px', textAlign: 'left' }}>Heures</th>
+                </tr>
+              </thead>
+              <tbody>
+                {getDatesHeures(commandeDatesDetail).map((dh) => (
+                  <tr
+                    key={dh.date}
+                    style={{ borderBottom: `1px solid ${couleurs.bordure}` }}
+                  >
+                    <td style={{ padding: '12px', fontWeight: 700 }}>
+                      {dh.date}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {dh.heures.map((h) => (
+                        <span
+                          key={h}
+                          style={{
+                            display: 'inline-block',
+                            backgroundColor: couleurs.vertClair,
+                            color: couleurs.vert,
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            marginRight: '6px',
+                            marginBottom: '6px',
+                            fontWeight: 700,
+                            fontSize: '14px',
+                          }}
+                        >
+                          {h}
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: '20px', textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={() => setCommandeDatesDetail(null)}
+                style={{
+                  padding: '12px 25px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: couleurs.vert,
+                  color: '#FFF',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          MODAL GÉRER L'AUDIO
+      ====================================================== */}
+      {commandeAudio && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: couleurs.carte,
+              borderRadius: '16px',
+              padding: '30px',
+              width: '900px',
+              maxWidth: '95%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px',
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: '24px' }}>
+                🎙 Gérer l'audio — CMD-{String(commandeAudio.id).padStart(4, '0')}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCommandeAudio(null)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: couleurs.texte,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                padding: '14px',
+                backgroundColor: couleurs.vertClair,
+                borderRadius: '8px',
+                marginBottom: '20px',
+              }}
+            >
+              <strong>Client :</strong> {commandeAudio.client_nom}
+              <br />
+              <strong>Téléphone :</strong> {commandeAudio.client_telephone || '-'}
+              <br />
+              <strong>Date début :</strong> {commandeAudio.dateDebut || '-'}
+              <br />
+              <strong>Date fin :</strong> {commandeAudio.dateFin || '-'}
+              <br />
+              <strong>Heure diffusion :</strong> {commandeAudio.heureDiffusion || '-'}
+            </div>
+
+            <form
+              onSubmit={ajouterFichierAudio}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1.5fr auto',
+                gap: '10px',
+                alignItems: 'end',
+                marginBottom: '25px',
+              }}
+            >
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 700 }}>
+                  Nom du fichier
+                </label>
+                <input
+                  type="text"
+                  value={nomFichierAudio}
+                  onChange={(e) => setNomFichierAudio(e.target.value)}
+                  placeholder="rakoto.mp3"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${couleurs.bordure}`,
+                    backgroundColor: couleurs.carte,
+                    color: couleurs.texte,
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 700 }}>
+                  Chemin sur l'ordinateur
+                </label>
+                <input
+                  type="text"
+                  value={cheminOrdinateurAudio}
+                  onChange={(e) => setCheminOrdinateurAudio(e.target.value)}
+                  placeholder="C:\Audios\rakoto.mp3"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${couleurs.bordure}`,
+                    backgroundColor: couleurs.carte,
+                    color: couleurs.texte,
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={uploadLoading}
+                style={{
+                  border: 'none',
+                  backgroundColor: couleurs.vert,
+                  color: '#FFFFFF',
+                  padding: '12px 20px',
+                  borderRadius: '8px',
+                  cursor: uploadLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 700,
+                }}
+              >
+                {uploadLoading ? '...' : '+ Ajouter'}
+              </button>
+            </form>
+
+            <h3>Fichiers audio</h3>
+
+            {loadingFichiers ? (
+              <div style={{ textAlign: 'center', padding: '20px' }}>
+                Chargement...
+              </div>
+            ) : fichiersAudio.length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '25px',
+                  border: `1px dashed ${couleurs.bordure}`,
+                  borderRadius: '8px',
+                  color: couleurs.texteSecondaire,
+                }}
+              >
+                Aucun fichier audio pour cette commande.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: couleurs.vert, color: '#FFFFFF' }}>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Fichier</th>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Statut</th>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Chemin PAD</th>
+                    <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fichiersAudio.map((f) => (
+                    <tr
+                      key={f.id}
+                      style={{ borderBottom: `1px solid ${couleurs.bordure}` }}
+                    >
+                      <td style={{ padding: '12px', fontWeight: 600 }}>{f.nomFichier}</td>
+                      <td style={{ padding: '12px' }}>
+                        <span
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            backgroundColor: f.statut === 'Transféré' ? '#DCFCE7' : '#FEF9C3',
+                            color: f.statut === 'Transféré' ? '#15803D' : '#854D0E',
+                          }}
+                        >
+                          {f.statut}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px', color: couleurs.texteSecondaire }}>
+                        {f.cheminPAD || '—'}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => envoyerFichierPAD(f)}
+                          disabled={f.statut === 'Transféré'}
+                          style={{
+                            border: 'none',
+                            backgroundColor: f.statut === 'Transféré' ? '#E2E8F0' : couleurs.vert,
+                            color: f.statut === 'Transféré' ? '#64748B' : '#FFFFFF',
+                            padding: '8px 14px',
+                            borderRadius: '7px',
+                            cursor: f.statut === 'Transféré' ? 'default' : 'pointer',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                          }}
+                        >
+                          {f.statut === 'Transféré' ? 'Déjà envoyé' : '📤 Envoyer PAD'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* =====================================================
           MENU CLIC DROIT
       ====================================================== */}
+      
       {menuContextuel && (
         <div
           onClick={(event) =>
