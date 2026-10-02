@@ -1702,8 +1702,8 @@ const gererRechercheClient = (event) => {
   // =========================================================
   // RENDU
   // =========================================================
-  return (
-    <div
+   return (
+        <div
       style={{
         minHeight:
           'calc(100vh - 90px)',
@@ -1714,99 +1714,104 @@ const gererRechercheClient = (event) => {
         color:
           couleurs.texte,
       }}
-    >
-      {/* =====================================================
-          TITRE
-      ====================================================== */}
-      <div
-        style={{
-          textAlign: 'center',
-          marginBottom: '30px',
-        }}
-      >
-        <h1
+        > 
+
+      {/* ═══ BACKDROP FLOU ═══ */}
+      {etape === 1 && interfaceClient !== 'liste' && (
+        <div
           style={{
-            margin: 0,
-            fontSize: '38px',
-            fontWeight: 800,
-            color:
-              couleurs.vert,
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            backgroundColor: 'rgba(0,0,0,0.15)',
+            zIndex: 99998,
+          }}
+        />
+      )}
+
+      {/* ═══ TITRE (masqué si formulaire client) ═══ */}
+      {!(etape === 1 && interfaceClient !== 'liste') && (
+        <div
+          style={{
+            textAlign: 'center',
+            marginBottom: '30px',
           }}
         >
-          Commande
-        </h1>
-      </div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: '38px',
+              fontWeight: 800,
+              color: couleurs.vert,
+            }}
+          >
+            Commande
+          </h1>
+        </div>
+      )}
       
-        {onglet === 'nouvelle' && (
+    {onglet === 'nouvelle' && etape === 1 && interfaceClient === 'liste' && (
       <div
         style={{
           maxWidth: '1200px',
-          backgroundColor:
-            couleurs.carte,
+          margin: '0 auto 25px',
+          backgroundColor: couleurs.carte,
           border: `1px solid ${couleurs.bordure}`,
           borderRadius: '12px',
-          padding:
-            '20px 30px',
+          padding: '16px 40px',
           display: 'flex',
-          alignItems:
-            'center',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '15px',
         }}
       >
-
-        {/* ÉTAPE 1 */}
+        {/* ═══ ÉTAPE 1 : CLIENT ═══ */}
         <div
           style={{
             display: 'flex',
-            alignItems:
-              'center',
+            alignItems: 'center',
             gap: '10px',
-            color:
-              couleurs.vert,
+            color: couleurs.vert,
           }}
         >
           <div
             style={{
-              width: '40px',
-              height: '40px',
-              borderRadius:
-                '50%',
-              backgroundColor:
-                couleurs.vert,
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
+              backgroundColor: couleurs.vert,
               color: '#FFFFFF',
               display: 'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
+              alignItems: 'center',
+              justifyContent: 'center',
               fontWeight: 800,
-              fontSize: '17px',
+              fontSize: '15px',
             }}
           >
             1
           </div>
 
-          <strong>
-            Client
-          </strong>
+          <strong style={{ fontSize: '15px' }}>Client</strong>
         </div>
 
+        {/* ═══ LIGNE DE SÉPARATION ═══ */}
         <div
           style={{
-            flex: 1,
+            width: '60px',
             height: '2px',
-            backgroundColor:
-              couleurs.bordure,
-            margin:
-              '0 25px',
+            backgroundColor: couleurs.bordure,
           }}
         />
 
-        {/* ÉTAPE 2 */}
+        {/* ═══ ÉTAPE 2 : SERVICE + TARIF ═══ */}
         <div
           style={{
             display: 'flex',
-            alignItems:
-              'center',
+            alignItems: 'center',
             gap: '10px',
             color:
               etape >= 2
@@ -1816,10 +1821,9 @@ const gererRechercheClient = (event) => {
         >
           <div
             style={{
-              width: '40px',
-              height: '40px',
-              borderRadius:
-                '50%',
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
               backgroundColor:
                 etape >= 2
                   ? couleurs.vert
@@ -1829,74 +1833,72 @@ const gererRechercheClient = (event) => {
                   ? '#FFFFFF'
                   : couleurs.texteSecondaire,
               display: 'flex',
-              alignItems:
-                'center',
-              justifyContent:
-                'center',
+              alignItems: 'center',
+              justifyContent: 'center',
               fontWeight: 800,
-              fontSize: '17px',
+              fontSize: '15px',
             }}
           >
             2
           </div>
 
-          <strong>
-            Service + Tarif
-          </strong>
+          <strong style={{ fontSize: '15px' }}>Service + Tarif</strong>
         </div>
       </div>
-      )}
+    )}
       
         
-      {/* =====================================================
-          ONGLETS
+            {/* =====================================================
+          ONGLETS (masqués si formulaire client)
       ====================================================== */}
-      <div
-        style={{
-          maxWidth: '1200px',
-          margin: '0 auto 25px',
-          display: 'flex',
-          gap: '10px',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setOnglet('nouvelle')}
+      {!(etape === 1 && interfaceClient !== 'liste') && (
+        <div
           style={{
-            padding: '12px 22px',
-            borderRadius: '10px',
-            border: 'none',
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontSize: '15px',
-            backgroundColor:
-              onglet === 'nouvelle' ? couleurs.vert : couleurs.carte,
-            color:
-              onglet === 'nouvelle' ? '#FFFFFF' : couleurs.texte,
+            maxWidth: '1200px',
+            margin: '0 auto 25px',
+            display: 'flex',
+            gap: '10px',
           }}
         >
-          + Nouvelle commande
-        </button>
+          <button
+            type="button"
+            onClick={() => setOnglet('nouvelle')}
+            style={{
+              padding: '12px 22px',
+              borderRadius: '10px',
+              border: 'none',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: '15px',
+              backgroundColor:
+                onglet === 'nouvelle' ? couleurs.vert : couleurs.carte,
+              color:
+                onglet === 'nouvelle' ? '#FFFFFF' : couleurs.texte,
+            }}
+          >
+            + Nouvelle commande
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setOnglet('liste')}
-          style={{
-            padding: '12px 22px',
-            borderRadius: '10px',
-            border: 'none',
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontSize: '15px',
-            backgroundColor:
-              onglet === 'liste' ? couleurs.vert : couleurs.carte,
-            color:
-              onglet === 'liste' ? '#FFFFFF' : couleurs.texte,
-          }}
-        >
-          📋 Liste des commandes
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setOnglet('liste')}
+            style={{
+              padding: '12px 22px',
+              borderRadius: '10px',
+              border: 'none',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: '15px',
+              backgroundColor:
+                onglet === 'liste' ? couleurs.vert : couleurs.carte,
+              color:
+                onglet === 'liste' ? '#FFFFFF' : couleurs.texte,
+            }}
+          >
+            Liste des commandes
+          </button>
+        </div>
+      )}
 
       {/* =====================================================
           MESSAGES
@@ -2348,9 +2350,9 @@ const gererRechercheClient = (event) => {
           {/* =================================================
               AJOUT CLIENT
           ================================================== */}
-          {interfaceClient ===
+           {interfaceClient ===
             'ajout' && (
-            <div
+                        <div
               style={{
                 maxWidth:
                   '900px',
@@ -2359,12 +2361,14 @@ const gererRechercheClient = (event) => {
                   couleurs.carte,
                 border: `1px solid ${couleurs.bordure}`,
                 borderRadius:
-                  '14px',
+                  '16px',
                 padding: '35px',
+                position: 'relative',
+                zIndex: 99999,
                 boxShadow:
                   darkMode
-                    ? 'none'
-                    : '0 4px 18px rgba(0,0,0,0.05)',
+                    ? '0 25px 70px rgba(0,0,0,0.70)'
+                    : '0 25px 70px rgba(0,0,0,0.18), 0 10px 25px rgba(0,122,77,0.12)',
               }}
             >
               <div
@@ -2794,7 +2798,7 @@ const gererRechercheClient = (event) => {
           {/* =================================================
               MODIFIER CLIENT
           ================================================== */}
-          {interfaceClient ===
+                    {interfaceClient ===
             'modifier' &&
             clientAction && (
               <div
@@ -2808,6 +2812,12 @@ const gererRechercheClient = (event) => {
                   borderRadius:
                     '14px',
                   padding: '35px',
+                  position: 'relative',
+                  zIndex: 99999,
+                  boxShadow:
+                    darkMode
+                      ? '0 25px 70px rgba(0,0,0,0.70)'
+                      : '0 25px 70px rgba(0,0,0,0.18), 0 10px 25px rgba(0,122,77,0.12)',
                 }}
               >
                 <div
@@ -3032,7 +3042,7 @@ const gererRechercheClient = (event) => {
           {/* =================================================
               DÉTAILS CLIENT
           ================================================== */}
-          {interfaceClient ===
+                    {interfaceClient ===
             'details' &&
             clientAction && (
               <div
@@ -3046,6 +3056,12 @@ const gererRechercheClient = (event) => {
                   borderRadius:
                     '14px',
                   padding: '35px',
+                  position: 'relative',
+                  zIndex: 99999,
+                  boxShadow:
+                    darkMode
+                      ? '0 25px 70px rgba(0,0,0,0.70)'
+                      : '0 25px 70px rgba(0,0,0,0.18), 0 10px 25px rgba(0,122,77,0.12)',
                 }}
               >
                 <div

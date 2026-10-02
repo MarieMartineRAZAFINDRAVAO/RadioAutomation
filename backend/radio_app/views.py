@@ -300,11 +300,22 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # ═══ Vérifier le type (MP3) ═══
+         # ═══ Vérifier le type (audio) ═══
         nom_fichier = fichier.name
-        if not nom_fichier.lower().endswith('.mp3'):
+        extensions_audio = [
+            '.mp3', '.wav', '.m4a', '.aac',
+            '.ogg', '.flac', '.wma', '.opus',
+        ]
+        extension = os.path.splitext(nom_fichier)[1].lower()
+
+        if extension not in extensions_audio:
             return Response(
-                {'error': 'Le fichier doit être un MP3.'},
+                {
+                    'error': (
+                        f'Format audio non supporté : {extension}. '
+                        f'Formats acceptés : {", ".join(extensions_audio)}'
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -346,6 +357,9 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
         serializer = FichierAudioSerializer(fichier_audio)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    # ═══════════════════════════════════════════════════════════
+    # ENVOYER VERS LE PAD
+    # ═══════════════════════════════════════════════════════════
     @action(detail=True, methods=['post'], url_path='envoyer-pad')
     def envoyer_pad(self, request, pk=None):
         fichier = self.get_object()
@@ -363,26 +377,178 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
-    @action(detail=True, methods=['post'], url_path='envoyer-jour')
-    def envoyer_jour(self, request, pk=None):
+    @action(detail=False, methods=['post'], url_path='envoyer-jour')
+    def envoyer_jour(self, request):
         """
-        Envoie le fichier audio du jour vers le PAD.
+        Envoie toutes les diffusions du jour vers le PAD.
         """
-        fichier = self.get_object()
+        from datetime import date as date_type
+        from .models import Programmation
 
-        try:
-            fichier.envoyerVersPAD()
-        except Exception as e:
+        aujourd_hui = date_type.today()
+
+        # Récupérer toutes les programmations du jour
+        programmations = Programmation.objects.filter(
+            dateDiffusion=aujourd_hui
+        ).select_related('commande')
+
+        if not programmations.exists():
             return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
+                {'message': "Aucune diffusion prévue pour aujourd'hui."},
+                status=status.HTTP_200_OK
             )
 
-        return Response(
-            FichierAudioSerializer(fichier).data,
-            status=status.HTTP_200_OK
+        # Grouper par commande
+        commandes_ids = set(
+            prog.commande_id
+            for prog in programmations
+            if prog.commande_id
         )
 
+        resultats = {
+            'succes': [],
+            'echecs': [],
+        }
+
+        for commande_id in commandes_ids:
+            fichiers = FichierAudio.objects.filter(
+                commande_id=commande_id,
+                statut='Disponible',
+            )
+
+            for fichier in fichiers:
+                try:
+                    fichier.envoyerVersPAD()
+                    resultats['succes'].append({
+                        'commande': commande_id,
+                        'fichier': fichier.nomFichier,
+                    })
+                except Exception as e:
+                    resultats['echecs'].append({
+                        'commande': commande_id,
+                        'fichier': fichier.nomFichier,
+                        'erreur': str(e),
+                    })
+
+        return Response(resultats, status=status.HTTP_200_OK)
+    # ═══════════════════════════════════════════════════════════
+    # OUVRIR LE PAD (génère un fichier .bat)
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=True, methods=['get'], url_path='ouvrir-pad')
+    def ouvrir_pad(self, request, pk=None):
+        """
+        Génère un fichier .bat qui ouvre le dossier du PAD :
+        - Mode LOCAL : ouvre D:\RadioAutomation\PAD-LOCAL
+        - Mode SMB   : se connecte au réseau et ouvre \\10.10.0.10\Z
+        """
+        from django.http import HttpResponse
+        from django.conf import settings
+
+        fichier = self.get_object()
+
+        # ═══ Déterminer le mode ═══
+        smb_enabled = getattr(settings, 'PAD_SMB_ENABLED', False)
+
+        if smb_enabled:
+            # ═══════════════════════════════════════════
+            # MODE SMB (PRODUCTION)
+            # ═══════════════════════════════════════════
+            username = request.query_params.get(
+                'username',
+                settings.PAD_SMB_USERNAME
+            )
+            password = request.query_params.get(
+                'password',
+                settings.PAD_SMB_PASSWORD
+            )
+            server_ip = settings.PAD_SMB_SERVER_IP
+            share = settings.PAD_SMB_SHARE
+
+            chemin_cible = f"\\\\{server_ip}\\{share}"
+
+            contenu = f'''@echo off
+chcp 65001 >nul
+title Ouverture du PAD (SMB) - Radio Tsiry
+color 0A
+
+echo ================================================
+echo    RADIO TSIRY - OUVERTURE DU PAD (SMB)
+echo ================================================
+echo.
+echo Fichier : {fichier.nomFichier}
+echo Serveur : {server_ip}
+echo Partage : {share}
+echo Chemin  : {chemin_cible}
+echo.
+
+REM === Se connecter au lecteur reseau ===
+echo Connexion au lecteur reseau...
+net use \\\\{server_ip}\\{share} /user:{username} {password} >nul 2>&1
+
+if errorlevel 1 (
+    echo [ERREUR] Echec de connexion.
+    echo Verifiez vos identifiants.
+    pause
+    exit /b 1
+)
+
+echo [OK] Connexion reussie.
+echo.
+
+REM === Ouvrir la racine du PAD ===
+echo Ouverture du PAD dans l'Explorateur...
+start "" "{chemin_cible}"
+
+echo.
+echo ================================================
+echo    PAD OUVERT - Vous pouvez fermer ceci
+echo ================================================
+timeout /t 3 >nul
+'''
+
+        else:
+            # ═══════════════════════════════════════════
+            # MODE LOCAL (SOUTENANCE)
+            # ═══════════════════════════════════════════
+            local_path = settings.PAD_LOCAL_PATH
+
+            contenu = f'''@echo off
+chcp 65001 >nul
+title Ouverture du PAD (LOCAL) - Radio Tsiry
+color 0A
+
+echo ================================================
+echo    RADIO TSIRY - OUVERTURE DU PAD (LOCAL)
+echo ================================================
+echo.
+echo Fichier : {fichier.nomFichier}
+echo Chemin  : {local_path}
+echo Mode    : LOCAL (développement / soutenance)
+echo.
+
+REM === Ouvrir le dossier local ===
+echo Ouverture du dossier local dans l'Explorateur...
+start "" "{local_path}"
+
+echo.
+echo ================================================
+echo    PAD LOCAL OUVERT - Vous pouvez fermer ceci
+echo ================================================
+timeout /t 3 >nul
+'''
+
+        # ═══ Réponse HTTP ═══
+        response = HttpResponse(
+            contenu,
+            content_type='application/bat; charset=utf-8'
+        )
+
+        nom_fichier_bat = f"ouvrir_pad_{fichier.id}.bat"
+        response['Content-Disposition'] = (
+            f'attachment; filename="{nom_fichier_bat}"'
+        )
+
+        return response
 
 # ==========================================
 # PROFIL UTILISATEUR CONNECTE
@@ -441,6 +607,8 @@ def pad_config(request):
 
     return Response({
         'smb_enabled': settings.PAD_SMB_ENABLED,
+        'server_ip': settings.PAD_SMB_SERVER_IP,
+        'local_path': settings.PAD_LOCAL_PATH,
         'dossiers': [
             '0- ALAHADY',
             '1-ALATSINAINY',
@@ -453,7 +621,6 @@ def pad_config(request):
             '9- FILAZANA',
         ],
     })
-
 
 # ==========================================
 # PROGRAMMATION — VIEWSET AVEC ACTIONS
@@ -534,6 +701,61 @@ class ProgrammationViewSet(viewsets.ModelViewSet):
             ProgrammationSerializer(programmation).data,
             status=status.HTTP_200_OK
         )
+    @action(detail=False, methods=['post'], url_path='envoyer-jour')
+    def envoyer_jour(self, request):
+        """
+        Envoie toutes les diffusions du jour vers le PAD.
+        """
+        from datetime import date as date_type
+        aujourd_hui = date_type.today()
+
+        # Récupérer toutes les programmations du jour
+        from .models import Programmation
+
+        programmations = Programmation.objects.filter(
+            dateDiffusion=aujourd_hui
+        ).select_related('commande', 'commande__client')
+
+        if not programmations.exists():
+            return Response(
+                {'message': 'Aucune diffusion prévue pour aujourd\'hui.'},
+                status=status.HTTP_200_OK
+            )
+
+        # Grouper par commande
+        commandes_ids = set(
+            prog.commande_id
+            for prog in programmations
+            if prog.commande_id
+        )
+
+        resultats = {
+            'succes': [],
+            'echecs': [],
+        }
+
+        for commande_id in commandes_ids:
+            # Récupérer les fichiers audio de cette commande
+            fichiers = FichierAudio.objects.filter(
+                commande_id=commande_id,
+                statut='Disponible',
+            )
+
+            for fichier in fichiers:
+                try:
+                    fichier.envoyerVersPAD()
+                    resultats['succes'].append({
+                        'commande': commande_id,
+                        'fichier': fichier.nomFichier,
+                    })
+                except Exception as e:
+                    resultats['echecs'].append({
+                        'commande': commande_id,
+                        'fichier': fichier.nomFichier,
+                        'erreur': str(e),
+                    })
+
+        return Response(resultats, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='marquer-diffuse')
     def marquer_diffuse(self, request, pk=None):

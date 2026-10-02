@@ -94,7 +94,7 @@ urlpatterns = [
 
     # Configuration du PAD (lera / créneaux horaires)
     path(
-        'pad/config/',
+        'pad-config/',
         pad_config,
         name='pad-config'
     ),

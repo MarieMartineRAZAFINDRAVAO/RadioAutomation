@@ -10,6 +10,7 @@ export default function FichiersAudio({
   const [commande, setCommande] = useState(null);
   const [programmations, setProgrammations] = useState([]);
   const [fichiers, setFichiers] = useState([]);
+  const [padMode, setPadMode] = useState(null);
   const [loading, setLoading] = useState(true);
   const [envoiEnCours, setEnvoiEnCours] = useState(null);
   const [error, setError] = useState('');
@@ -17,6 +18,10 @@ export default function FichiersAudio({
 
   // Formulaire
   const [fichierSelectionne, setFichierSelectionne] = useState(null);
+    // ═══ Modal "Ouvrir PAD" ═══
+  const [modalOuvrirPAD, setModalOuvrirPAD] = useState(null);
+  const [padUsername, setPadUsername] = useState('onair');
+  const [padPassword, setPadPassword] = useState('105');
   const [nomFichier, setNomFichier] = useState('');
   const [ajoutLoading, setAjoutLoading] = useState(false);
 
@@ -57,11 +62,33 @@ export default function FichiersAudio({
       }
 
       // Fichiers audio
-      const r2 = await fetch(`${API_BASE_URL}/fichiers-audio/?commande=${commandeId}`, { headers });
+            const r2 = await fetch(`${API_BASE_URL}/fichiers-audio/?commande=${commandeId}`, { headers });
       if (r2.ok) {
         const d2 = await r2.json();
         const liste = Array.isArray(d2) ? d2 : (d2.results || []);
         setFichiers(liste);
+      }
+
+      // ═══ Charger la configuration du PAD ═══
+      try {
+        const r3 = await fetch(`${API_BASE_URL}/pad-config/`, { headers });
+        if (r3.ok) {
+          const d3 = await r3.json();
+          setPadMode(d3);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+
+      // ═══ Charger la configuration du PAD ═══
+      try {
+        const r3 = await fetch(`${API_BASE_URL}/pad-config/`, { headers });
+        if (r3.ok) {
+          const d3 = await r3.json();
+          setPadMode(d3);
+        }
+      } catch (e) {
+        console.error(e);
       }
     } catch (err) {
       console.error(err);
@@ -136,6 +163,84 @@ export default function FichiersAudio({
       setError(err.message || "Impossible d'uploader le fichier.");
     } finally {
       setAjoutLoading(false);
+    }
+  };
+    // =========================================================
+  // OUVRIR LE PAD (modal)
+  // =========================================================
+  const ouvrirModalPAD = (fichier) => {
+    if (!fichier.cheminPAD) {
+      setError("Ce fichier n'a pas encore été envoyé au PAD.");
+      return;
+    }
+    setModalOuvrirPAD(fichier);
+    setPadUsername('onair');
+    setPadPassword('105');
+    setError('');
+  };
+
+  const confirmerOuvrirPAD = () => {
+    if (!modalOuvrirPAD) return;
+
+    const url = `${API_BASE_URL}/fichiers-audio/${modalOuvrirPAD.id}/ouvrir-pad/?username=${encodeURIComponent(padUsername)}&password=${encodeURIComponent(padPassword)}`;
+
+    // Télécharger le .bat
+    window.open(url, '_blank');
+
+    setModalOuvrirPAD(null);
+    setSuccessMessage(
+      'Fichier .bat téléchargé. Double-cliquez pour ouvrir le PAD.'
+    );
+    setTimeout(() => setSuccessMessage(''), 5000);
+  };
+    // =========================================================
+  // ENVOYER LES DIFFUSIONS DU JOUR
+  // =========================================================
+  const envoyerDiffusionsDuJour = async () => {
+    if (
+      !window.confirm(
+        'Envoyer toutes les diffusions du jour vers le PAD ?'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setError('');
+      const token = localStorage.getItem('accessToken');
+
+      const response = await fetch(
+        `${API_BASE_URL}/fichiers-audio/envoyer-jour/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData ? JSON.stringify(errData) : 'Erreur');
+      }
+
+      const data = await response.json();
+
+      if (data.message) {
+        setSuccessMessage(data.message);
+      } else {
+        setSuccessMessage(
+          `✅ ${data.succes.length} fichier(s) envoyé(s), ${data.echecs.length} échec(s).`
+        );
+      }
+
+      chargerDonnees();
+      setTimeout(() => setSuccessMessage(''), 4000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Échec de l'envoi des diffusions du jour.");
     }
   };
 
@@ -247,6 +352,7 @@ export default function FichiersAudio({
         >
           Fichier Audio
         </h1>
+    
 
         {/* MESSAGES */}
         {error && (
@@ -465,7 +571,7 @@ export default function FichiersAudio({
               >
                 <input
                   type="file"
-                  accept=".mp3,audio/mpeg"
+                  accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
                   onChange={choisirFichier}
                   id="file-input"
                   style={{ display: 'none' }}
@@ -536,6 +642,35 @@ export default function FichiersAudio({
           >
             Fichiers audio associés
           </h3>
+                  <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '18px',
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: '20px', color: couleurs.vert }}>
+            Fichiers audio associés
+          </h3>
+
+          <button
+            type="button"
+            onClick={envoyerDiffusionsDuJour}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: couleurs.vert,
+              color: '#FFFFFF',
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            📤 Envoyer les diffusions du jour
+          </button>
+        </div>
 
           {loading ? (
             <div
@@ -584,8 +719,11 @@ export default function FichiersAudio({
                     <th style={thStyle}>Fichier</th>
                     <th style={thStyle}>Statut</th>
                     <th style={thStyle}>Chemin PAD</th>
-                    <th style={{ ...thStyle, textAlign: 'center' }}>
+                                        <th style={{ ...thStyle, textAlign: 'center' }}>
                       Action
+                    </th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>
+                      Voir PAD
                     </th>
                   </tr>
                 </thead>
@@ -661,12 +799,43 @@ export default function FichiersAudio({
                             fontSize: '14px',
                           }}
                         >
-                          {envoiEnCours === f.id
+                                                   {envoiEnCours === f.id
                             ? 'Envoi...'
                             : f.statut === 'Transféré'
                             ? 'Déjà envoyé'
                             : '📤 Envoyer PAD'}
                         </button>
+                      </td>
+
+                      {/* ═══ BOUTON VOIR PAD ═══ */}
+                      <td
+                        style={{
+                          ...tdStyle,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {f.cheminPAD ? (
+                          <button
+                            type="button"
+                            onClick={() => ouvrirModalPAD(f)}
+                            style={{
+                              border: 'none',
+                              backgroundColor: '#3B82F6',
+                              color: '#FFFFFF',
+                              padding: '9px 18px',
+                              borderRadius: '7px',
+                              cursor: 'pointer',
+                              fontWeight: 700,
+                              fontSize: '14px',
+                            }}
+                          >
+                            📂 Voir PAD
+                          </button>
+                        ) : (
+                          <span style={{ color: couleurs.texteSecondaire }}>
+                            —
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -675,6 +844,174 @@ export default function FichiersAudio({
             </div>
           )}
         </div>
+
+                {/* ═══ MODAL OUVRIR PAD ═══ */}
+        {modalOuvrirPAD && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 9999,
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: couleurs.carte,
+                borderRadius: '16px',
+                padding: '30px',
+                width: '450px',
+                maxWidth: '95%',
+              }}
+            >
+              <h3
+                style={{
+                  marginTop: 0,
+                  fontSize: '20px',
+                  color: couleurs.vert,
+                }}
+              >
+                📂 Ouvrir le PAD
+              </h3>
+
+              <p
+                style={{
+                  color: couleurs.texteSecondaire,
+                  fontSize: '14px',
+                  marginBottom: '20px',
+                }}
+              >
+                Fichier : <strong>{modalOuvrirPAD.nomFichier}</strong>
+              </p>
+
+              <div style={{ marginBottom: '15px' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    marginBottom: '5px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Nom d'utilisateur PAD
+                </label>
+                <input
+                  type="text"
+                  value={padUsername}
+                  onChange={(e) => setPadUsername(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${couleurs.bordure}`,
+                    backgroundColor: couleurs.fond,
+                    color: couleurs.texte,
+                    boxSizing: 'border-box',
+                    fontSize: '15px',
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    marginBottom: '5px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Mot de passe PAD
+                </label>
+                <input
+                  type="password"
+                  value={padPassword}
+                  onChange={(e) => setPadPassword(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: `1px solid ${couleurs.bordure}`,
+                    backgroundColor: couleurs.fond,
+                    color: couleurs.texte,
+                    boxSizing: 'border-box',
+                    fontSize: '15px',
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  padding: '12px',
+                  backgroundColor: couleurs.vertClair,
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  marginBottom: '20px',
+                  color: couleurs.texte,
+                }}
+              >
+                💡 <strong>Mode d'emploi :</strong>
+                <ol style={{ margin: '8px 0 0 20px', padding: 0 }}>
+                  <li>Cliquez sur <strong>"Télécharger"</strong></li>
+                  <li>
+                    Le <strong>fichier .bat</strong> sera téléchargé dans le dossier{' '}
+                    <strong>Téléchargements</strong>
+                  </li>
+                  <li>
+                    <strong>Double-cliquez</strong> sur le fichier
+                  </li>
+                  <li>
+                    Le <strong>PAD complet</strong> s'ouvrira dans{' '}
+                    <strong>l'Explorateur Windows</strong>
+                  </li>
+                </ol>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setModalOuvrirPAD(null)}
+                  style={{
+                    padding: '12px 20px',
+                    borderRadius: '8px',
+                    border: `1px solid ${couleurs.bordure}`,
+                    background: 'transparent',
+                    color: couleurs.texte,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confirmerOuvrirPAD}
+                  style={{
+                    padding: '12px 25px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: couleurs.vert,
+                    color: '#FFF',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  📥 Télécharger
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* BOUTON RETOUR */}
         {onPrecedent && (

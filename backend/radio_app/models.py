@@ -385,16 +385,19 @@ class FichierAudio(models.Model):
 
     def envoyerVersPAD(self):
         """
-        Transfert du fichier audio vers le PAD via SMB2/SMB3.
+        Transfert du fichier audio vers le PAD.
+
+        - Mode LOCAL : copie vers D:\RadioAutomation\PAD-LOCAL
+        - Mode SMB   : copie vers \\10.10.0.10\Z
 
         Le fichier est copié dans le dossier correspondant au
         jour de la semaine de CHAQUE diffusion (Programmation).
         """
         import os
-        from datetime import datetime
+        from datetime import datetime, date as date_type
         from django.conf import settings
 
-        # ═══ Vérifier le fichier source ═══
+        # ═══ 1. Vérifier le fichier source ═══
         if (
             not self.cheminOrdinateur
             or not os.path.exists(self.cheminOrdinateur)
@@ -408,15 +411,23 @@ class FichierAudio(models.Model):
 
         nom_fichier = os.path.basename(self.cheminOrdinateur)
 
-        # ═══ Vérifier extension .mp3 ═══
-        if not nom_fichier.lower().endswith('.mp3'):
+                # ═══ 2. Vérifier extension audio ═══
+        extensions_audio = [
+            '.mp3', '.wav', '.m4a', '.aac',
+            '.ogg', '.flac', '.wma', '.opus',
+            '.mp4', '.webm',
+        ]
+        extension = os.path.splitext(nom_fichier)[1].lower()
+
+        if extension not in extensions_audio:
             self.statut = 'Échec'
             self.save(update_fields=['statut'])
             raise ValueError(
-                f"Le fichier doit être un MP3 : {nom_fichier}"
+                f"Format audio non supporté : {extension}. "
+                f"Formats acceptés : {', '.join(extensions_audio)}"
             )
 
-        # ═══ Mapping jours → dossiers PAD ═══
+        # ═══ 3. Mapping jours → dossiers PAD ═══
         JOURS_DOSSIERS = {
             0: '1-ALATSINAINY',   # Lundi
             1: '2-TALATA',        # Mardi
@@ -427,13 +438,14 @@ class FichierAudio(models.Model):
             6: '0- ALAHADY',      # Dimanche
         }
 
-        # ═══ Récupérer toutes les dates de diffusion ═══
+        # ═══ 4. Récupérer toutes les dates de diffusion ═══
         programmations = (
             self.commande.programmations.all()
             if self.commande
             else []
         )
 
+        # ═══ 5. INITIALISER dates_diffusion (AVANT le filtre) ═══
         dates_diffusion = []
 
         if programmations:
@@ -448,7 +460,23 @@ class FichierAudio(models.Model):
             else:
                 dates_diffusion.append(datetime.now().date())
 
-        # ═══ Envoyer vers chaque dossier correspondant ═══
+        # ═══ 6. FILTRER : garder uniquement les dates ≤ aujourd'hui ═══
+        aujourd_hui = date_type.today()
+
+        dates_diffusion = [
+            d for d in dates_diffusion
+            if d <= aujourd_hui
+        ]
+
+        if not dates_diffusion:
+            self.statut = 'En attente'
+            self.save(update_fields=['statut'])
+            raise ValueError(
+                "Aucune diffusion à envoyer aujourd'hui. "
+                "Les dates de diffusion sont dans le futur."
+            )
+
+        # ═══ 7. Envoyer vers chaque dossier correspondant ═══
         chemins_envoyes = []
 
         try:
@@ -456,13 +484,13 @@ class FichierAudio(models.Model):
                 # ═══ Mode SMB2/SMB3 avec smbprotocol ═══
                 import smbclient
 
-                # ═══ Nettoyer le cache de connexions (SMB2 credits) ═══
+                # Nettoyer le cache
                 try:
                     smbclient.reset_connection_cache()
                 except Exception:
                     pass
 
-                # ═══ Enregistrer une nouvelle session SMB ═══
+                # Enregistrer une nouvelle session SMB
                 smbclient.register_session(
                     settings.PAD_SMB_SERVER_IP,
                     username=settings.PAD_SMB_USERNAME,
@@ -473,7 +501,7 @@ class FichierAudio(models.Model):
                     jour_semaine = date_diffusion.weekday()
                     dossier_jour = JOURS_DOSSIERS.get(jour_semaine, '2-TALATA')
 
-                    # ═══ Chemin UNC Windows ═══
+                    # Chemin UNC Windows
                     chemin_unc = (
                         f"\\\\{settings.PAD_SMB_SERVER_IP}\\"
                         f"{settings.PAD_SMB_SHARE}\\"
@@ -481,7 +509,7 @@ class FichierAudio(models.Model):
                         f"{nom_fichier}"
                     )
 
-                    # ═══ Copier le fichier via SMB ═══
+                    # Copier le fichier via SMB
                     with open(self.cheminOrdinateur, 'rb') as src:
                         data = src.read()
 

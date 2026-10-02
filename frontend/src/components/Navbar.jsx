@@ -29,10 +29,6 @@ const MENUS = [
     id: 'programmation',
     label: 'Programmation',
   },
-  {
-    id: 'diffusion',
-    label: 'Diffusion',
-  },
 ];
 
 export default function Navbar({
@@ -294,47 +290,16 @@ export default function Navbar({
           </div>
 
         </div>
-
         {/* =================================================
-            ESPACE CENTRAL
+            ESPACE CENTRAL (vide)
         ================================================= */}
 
         <div
           style={{
             flex: 1,
-            textAlign: 'center',
             minWidth: '250px',
           }}
-        >
-
-          <div
-            style={{
-              fontSize: '1.25rem',
-              fontWeight: 850,
-              color: isDarkMode
-                ? '#E5F5ED'
-                : '#334155',
-              letterSpacing: '0.6px',
-            }}
-          >
-            ESPACE PROFESSIONNEL
-          </div>
-
-          <div
-            style={{
-              marginTop: '8px',
-              fontSize: '0.95rem',
-              fontWeight: 600,
-              color: isDarkMode
-                ? '#A9CBB9'
-                : '#64748B',
-              textTransform: 'capitalize',
-            }}
-          >
-            {dateActuelle}
-          </div>
-
-        </div>
+        />
 
         {/* =================================================
             PARTIE DROITE

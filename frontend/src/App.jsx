@@ -60,6 +60,7 @@ function App() {
   const [etapeInitialCommandes, setEtapeInitialCommandes] = useState(1);
     // Commande sélectionnée pour "Gérer l'audio"
   const [commandeIdAudio, setCommandeIdAudio] = useState(null);
+    const [clientSelectionneDashboard, setClientSelectionneDashboard] = useState(null);
   // =========================================================
   // UTILISATEUR CONNECTÉ
   // =========================================================
@@ -1006,6 +1007,26 @@ function App() {
               setShowLogoutConfirm(true)
             }
           />
+                  {activeTab === 'dashboard' && (
+            <Dashboard
+              darkMode={darkMode}
+              onVoirClient={(commande) => {
+                // Sélectionner le client de cette commande
+                if (commande && commande.client) {
+                  setClientSelectionneDashboard(commande.client);
+                }
+                setActiveTab('clients');
+              }}
+            />
+          )}
+
+          {activeTab === 'clients' && (
+            <Clients
+              darkMode={darkMode}
+              clientSelectionneId={clientSelectionneDashboard}
+            />
+          )}
+
 
           {activeTab === 'commandes' && (
             <Commandes
