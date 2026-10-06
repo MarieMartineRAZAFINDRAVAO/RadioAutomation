@@ -66,12 +66,12 @@ function Commandes({
 
   // Menu clic droit
   const [menuContextuel, setMenuContextuel] = useState(null);
-
   // Messages
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // =========================================================
+  // ═══ Modal notification custom ═══
+  const [modalNotif, setModalNotif] = useState(null);
   // ÉTAPE 2 : SERVICE + TARIF + DATES + HEURES
   // =========================================================
   const [services, setServices] = useState([]);
@@ -82,6 +82,10 @@ function Commandes({
   const [dateFin, setDateFin] = useState('');
   const [heuresParDate, setHeuresParDate] = useState({});
   const [heureTemporaire, setHeureTemporaire] = useState({});
+
+  // ═══ Dates exceptionnelles ═══
+  const [datesExceptionnelles, setDatesExceptionnelles] = useState([]);
+  const [dateExceptionnelleTemp, setDateExceptionnelleTemp] = useState('');
   const [observationCommande, setObservationCommande] = useState('');
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingTarifs, setLoadingTarifs] = useState(false);
@@ -90,26 +94,34 @@ function Commandes({
 // DATES COMMANDE (liste des dates entre dateDebut et dateFin)
 // =========================================================
 const datesCommande = useMemo(() => {
-  if (!dateDebut || !dateFin || dateDebut > dateFin) {
-    return [];
-  }
-
   const dates = [];
-  const courant = new Date(`${dateDebut}T00:00:00`);
-  const dernier = new Date(`${dateFin}T00:00:00`);
 
-  while (courant <= dernier) {
-    const annee = courant.getFullYear();
-    const mois = String(courant.getMonth() + 1).padStart(2, '0');
-    const jour = String(courant.getDate()).padStart(2, '0');
+  // ═══ 1. Dates de la période (mitohy) ═══
+  if (dateDebut && dateFin && dateDebut <= dateFin) {
+    const courant = new Date(`${dateDebut}T00:00:00`);
+    const dernier = new Date(`${dateFin}T00:00:00`);
 
-    dates.push(`${annee}-${mois}-${jour}`);
+    while (courant <= dernier) {
+      const annee = courant.getFullYear();
+      const mois = String(courant.getMonth() + 1).padStart(2, '0');
+      const jour = String(courant.getDate()).padStart(2, '0');
 
-    courant.setDate(courant.getDate() + 1);
+      dates.push(`${annee}-${mois}-${jour}`);
+
+      courant.setDate(courant.getDate() + 1);
+    }
   }
 
-  return dates;
-}, [dateDebut, dateFin]);
+  // ═══ 2. Dates exceptionnelles (tsy mitohy) ═══
+  datesExceptionnelles.forEach((date) => {
+    if (date && !dates.includes(date)) {
+      dates.push(date);
+    }
+  });
+
+  // ═══ 3. Trier par date ═══
+  return dates.sort();
+}, [dateDebut, dateFin, datesExceptionnelles]);
 
   // =========================================================
   // ÉTAPE 3 : COMMANDE + FACTURE
@@ -298,34 +310,91 @@ const gererRechercheClient = (event) => {
       console.error(err);
     } finally {
       setLoadingCommandes(false);
-    }
-  };
-    // =========================================================
+    }  };
+
+  // =========================================================
   // SUPPRIMER UNE COMMANDE
   // =========================================================
   const supprimerCommande = async (cmd) => {
-    const confirmation = window.confirm(
-      `Voulez-vous vraiment supprimer la commande CMD-${String(cmd.id).padStart(4, '0')} ?`
-    );
+    setError('');
+    setSuccessMessage('');
 
-    if (!confirmation) return;
+    // ═══ 1. Vérifier s'il reste des diffusions à venir ═══
+    const maintenant = new Date();
+    const programmations = Array.isArray(cmd.programmations)
+      ? cmd.programmations
+      : [];
 
-    try {
-      setError('');
-      await fetchJson(`${API_BASE_URL}/commandes/${cmd.id}/`, {
-        method: 'DELETE',
+    const diffusionsAVenir = programmations.filter((prog) => {
+      if (!prog.dateDiffusion || !prog.heureDiffusion) return false;
+
+      const heure = String(prog.heureDiffusion).slice(0, 5);
+      const [h, m] = heure.split(':');
+      const dateDiff = new Date(`${prog.dateDiffusion}T00:00:00`);
+      dateDiff.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+
+      return dateDiff > maintenant;
+    });
+
+    // ═══ 2. S'il reste des diffusions à venir → bloquer ═══
+    if (diffusionsAVenir.length > 0) {
+      const listeDates = diffusionsAVenir
+        .sort((a, b) => {
+          const dA = `${a.dateDiffusion} ${a.heureDiffusion}`;
+          const dB = `${b.dateDiffusion} ${b.heureDiffusion}`;
+          return dA.localeCompare(dB);
+        })
+        .map((prog) => {
+          const date = formaterDateLocale(prog.dateDiffusion);
+          const heure = String(prog.heureDiffusion).slice(0, 5);
+          return `• ${date} à ${heure}`;
+        })
+        .join('\n');
+
+      setModalNotif({
+        titre: 'Suppression impossible',
+        message:
+          `Impossible de supprimer la commande CMD-${String(cmd.id).padStart(4, '0')}.\n\n` +
+          `Il reste ${diffusionsAVenir.length} diffusion(s) à venir :\n\n` +
+          `${listeDates}\n\n` +
+          `Veuillez attendre la fin de toutes les diffusions avant de supprimer.`,
+        avecBoutons: false,
+        onConfirm: null,
       });
 
-      setCommandesListe((anciennes) =>
-        anciennes.filter((c) => c.id !== cmd.id)
-      );
-
-      setSuccessMessage('Commande supprimée avec succès.');
-      setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (err) {
-      console.error(err);
-      setError(err.message || 'Impossible de supprimer la commande.');
+      return;
     }
+
+    // ═══ 3. Aucune diffusion à venir → demander confirmation ═══
+    setModalNotif({
+      titre: 'Suppression',
+      message:
+        `Voulez-vous vraiment supprimer la commande CMD-${String(cmd.id).padStart(4, '0')} ?\n\n` +
+        `Toutes les diffusions sont terminées.\n` +
+        `Les archives resteront disponibles dans le dossier "archives".`,
+      avecBoutons: true,
+      onConfirm: async () => {
+        try {
+          await fetchJson(`${API_BASE_URL}/commandes/${cmd.id}/`, {
+            method: 'DELETE',
+          });
+
+          setCommandesListe((anciennes) =>
+            anciennes.filter((c) => c.id !== cmd.id)
+          );
+
+          setSuccessMessage(
+            `Commande CMD-${String(cmd.id).padStart(4, '0')} supprimée avec succès.`
+          );
+          setTimeout(() => setSuccessMessage(''), 3000);
+        } catch (err) {
+          console.error(err);
+          setError(
+            err.message || 'Impossible de supprimer la commande.'
+          );
+        }
+      },
+    });
   };
 
   // =========================================================
@@ -1269,35 +1338,71 @@ const gererRechercheClient = (event) => {
   // INITIALISER LES HEURES POUR CHAQUE DATE
   // =========================================================
   useEffect(() => {
-    if (
-      !dateDebut ||
-      !dateFin ||
-      dateDebut > dateFin
-    ) {
-      setHeuresParDate({});
-      setHeureTemporaire({});
+    setHeuresParDate((ancien) => {
+      const nouveau = {};
+
+      datesCommande.forEach((date) => {
+        nouveau[date] = Array.isArray(ancien[date])
+          ? ancien[date]
+          : [];
+      });
+
+      return nouveau;
+    });
+  }, [datesCommande]);
+
+  // =========================================================
+  // AJOUTER UNE DATE EXCEPTIONNELLE
+  // =========================================================
+  const ajouterDateExceptionnelle = () => {
+    const date = dateExceptionnelleTemp;
+
+    if (!date) {
+      setError('Veuillez choisir une date.');
       return;
     }
 
-    setHeuresParDate(
-      (ancien) => {
-        const nouveau = {};
+    // Vérifier doublon (déjà dans la liste)
+    if (datesExceptionnelles.includes(date)) {
+      setError(
+        `La date ${formaterDateLocale(date)} est déjà ajoutée.`
+      );
+      return;
+    }
 
-        datesCommande.forEach(
-          (date) => {
-            nouveau[date] =
-              Array.isArray(
-                ancien[date]
-              )
-                ? ancien[date]
-                : [];
-          }
-        );
+    // Vérifier si la date est déjà dans la période
+    if (
+      dateDebut &&
+      dateFin &&
+      date >= dateDebut &&
+      date <= dateFin
+    ) {
+      setError(
+        `La date ${formaterDateLocale(date)} est déjà incluse dans la période.`
+      );
+      return;
+    }
 
-        return nouveau;
-      }
+    setDatesExceptionnelles((ancien) => [...ancien, date].sort());
+    setDateExceptionnelleTemp('');
+    setError('');
+  };
+
+  // =========================================================
+  // SUPPRIMER UNE DATE EXCEPTIONNELLE
+  // =========================================================
+  const supprimerDateExceptionnelle = (date) => {
+    setDatesExceptionnelles((ancien) =>
+      ancien.filter((d) => d !== date)
     );
-  }, [dateDebut, dateFin]);
+
+    // Retirer aussi ses heures
+    setHeuresParDate((ancien) => {
+      const nouveau = { ...ancien };
+      delete nouveau[date];
+      return nouveau;
+    });
+  };
 
   // =========================================================
   // AJOUTER UNE HEURE
@@ -1445,23 +1550,39 @@ const gererRechercheClient = (event) => {
       return false;
     }
 
-    if (
-      !dateDebut ||
-      !dateFin
-    ) {
+    // ═══ 1. Vérifier l'état de la période ═══
+    const aDebut = Boolean(dateDebut);
+    const aFin = Boolean(dateFin);
+    const aExceptionnelles = datesExceptionnelles.length > 0;
+
+    // Cas ① : Un seul des deux est rempli → Erreur
+    if (aDebut !== aFin) {
       setError(
-        'Veuillez sélectionner la date de début et la date de fin.'
+        'Veuillez compléter la période : la date de début ET la date de fin doivent être remplies ensemble. Sinon, utilisez uniquement les dates exceptionnelles.'
       );
       return false;
     }
 
-    if (dateDebut > dateFin) {
+    // Cas ② : Période complète → OK
+    if (aDebut && aFin) {
+      // Vérifier que dateFin >= dateDebut
+      if (dateDebut > dateFin) {
+        setError(
+          'La date de fin doit être supérieure ou égale à la date de début.'
+        );
+        return false;
+      }
+    }
+
+    // Cas ③ : Période vide → vérifier qu'il y a des exceptionnelles
+    if (!aDebut && !aFin && !aExceptionnelles) {
       setError(
-        'La date de fin doit être supérieure ou égale à la date de début.'
+        'Veuillez sélectionner au moins une date (période complète ou dates exceptionnelles).'
       );
       return false;
     }
 
+    // ═══ 2. Vérifier qu'il y a au moins une heure ═══
     if (nombreDiffusions === 0) {
       setError(
         'Veuillez ajouter au moins une heure de diffusion.'
@@ -1536,8 +1657,8 @@ const gererRechercheClient = (event) => {
         body: JSON.stringify({
           client: clientId,
           utilisateur: utilisateurId,
-          dateDebut: dateDebut,
-          dateFin: dateFin,
+          dateDebut: dateDebut || null,
+          dateFin: dateFin || null,
           statut: 'En cours',
           observation: observationCommande.trim() || null,
           lignes: lignes,
@@ -3669,6 +3790,117 @@ const gererRechercheClient = (event) => {
               </div>
             </div>
           </div>
+                    {/* =================================================
+              DATES EXCEPTIONNELLES
+          ================================================== */}
+          <div
+            style={{
+              marginTop: '30px',
+            }}
+          >
+            <h3
+              style={{
+                marginBottom: '15px',
+                fontSize: '20px',
+              }}
+            >
+              Dates exceptionnelles (facultatif)
+            </h3>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '10px',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }}
+            >
+              <input
+                type="date"
+                value={dateExceptionnelleTemp}
+                onChange={(e) =>
+                  setDateExceptionnelleTemp(e.target.value)
+                }
+                style={{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: `1px solid ${couleurs.bordure}`,
+                  backgroundColor: couleurs.carte,
+                  color: couleurs.texte,
+                  fontSize: '16px',
+                  fontWeight: 600,
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={ajouterDateExceptionnelle}
+                style={{
+                  border: 'none',
+                  backgroundColor: couleurs.vert,
+                  color: '#FFFFFF',
+                  padding: '12px 18px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: '15px',
+                }}
+              >
+                + Ajouter cette date
+              </button>
+            </div>
+
+            {/* Liste des dates exceptionnelles ajoutées */}
+            {datesExceptionnelles.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                  marginTop: '15px',
+                }}
+              >
+                {datesExceptionnelles.map((date) => (
+                  <div
+                    key={date}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '9px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#FFFFFF',
+                      border: `1px solid ${couleurs.bordure}`,
+                      color: '#1F2937',
+                      fontWeight: 700,
+                      fontSize: '15px',
+                    }}
+                  >
+                    <span>{formaterDateLocale(date)}</span>
+
+                    <button
+                      type="button"
+                      onClick={() => supprimerDateExceptionnelle(date)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: couleurs.rouge,
+                        cursor: 'pointer',
+                        fontWeight: 900,
+                        fontSize: '19px',
+                        padding: 0,
+                        lineHeight: 1,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* =================================================
               HEURES DE DIFFUSION
@@ -5339,6 +5571,137 @@ const gererRechercheClient = (event) => {
         </div>
       )}
 
+            {/* =====================================================
+          MODAL NOTIFICATION / CONFIRMATION
+      ====================================================== */}
+      {modalNotif && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 99999,
+          }}
+          onClick={() => setModalNotif(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '18px',
+              padding: '35px 40px',
+              width: '520px',
+              maxWidth: '95%',
+              textAlign: 'center',
+              boxShadow: '0 25px 70px rgba(0,0,0,0.30)',
+            }}
+          >
+            <h2
+              style={{
+                margin: '0 0 18px',
+                fontSize: '26px',
+                fontWeight: 800,
+                color: '#1F2937',
+              }}
+            >
+              {modalNotif.titre}
+            </h2>
+
+            <p
+              style={{
+                margin: '0 0 30px',
+                fontSize: '16px',
+                color: '#6B7280',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-line',
+                textAlign: 'left',
+              }}
+            >
+              {modalNotif.message}
+            </p>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '15px',
+                justifyContent: 'center',
+              }}
+            >
+              {!modalNotif.avecBoutons && (
+                <button
+                  type="button"
+                  onClick={() => setModalNotif(null)}
+                  style={{
+                    padding: '12px 40px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#EF4444',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: '16px',
+                    cursor: 'pointer',
+                    minWidth: '120px',
+                  }}
+                >
+                  OK
+                </button>
+              )}
+
+              {modalNotif.avecBoutons && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cb = modalNotif.onConfirm;
+                      setModalNotif(null);
+                      if (cb) cb();
+                    }}
+                    style={{
+                      padding: '12px 40px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#EF4444',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      minWidth: '120px',
+                    }}
+                  >
+                    Oui
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalNotif(null)}
+                    style={{
+                      padding: '12px 40px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#94A3B8',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      minWidth: '120px',
+                    }}
+                  >
+                    Non
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      
       {/* =====================================================
           MENU CLIC DROIT
       ====================================================== */}

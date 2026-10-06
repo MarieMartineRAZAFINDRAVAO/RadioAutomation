@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 media/
 logs_pad.txt
+backend/pad_local/

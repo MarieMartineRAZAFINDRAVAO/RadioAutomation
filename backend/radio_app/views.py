@@ -344,6 +344,24 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # ═══ Lire la durée de l'audio (en secondes) ═══
+        duree_secondes = 0
+
+        try:
+            import mutagen
+
+            audio = mutagen.File(chemin_complet)
+
+            if audio is not None and audio.info is not None:
+                duree_secondes = int(audio.info.length)
+            else:
+                print(
+                    f"[PAD] Impossible de lire la durée : "
+                    f"{nom_fichier}"
+                )
+        except Exception as e:
+            print(f"[PAD] Erreur lecture durée : {e}")
+
         # ═══ Créer le FichierAudio ═══
         fichier_audio = FichierAudio.objects.create(
             commande=commande,
@@ -351,8 +369,22 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
             cheminOrdinateur=chemin_complet,
             format='mp3',
             taille=fichier.size,
+            duree=duree_secondes,
             statut='Disponible',
         )
+
+        # ═══ Attacher le fichier aux Programmations de la commande ═══
+        programmations = commande.programmations.all()
+        for prog in programmations:
+            if not prog.fichierAudio:
+                prog.fichierAudio = fichier_audio
+                prog.save(update_fields=['fichierAudio'])
+
+        # ═══ AUTO-COPIE VERS LE PAD ═══
+        try:
+            fichier_audio.envoyerVersPAD()
+        except Exception as e:
+            print(f"[PAD] Erreur envoi auto : {e}")
 
         serializer = FichierAudioSerializer(fichier_audio)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -431,124 +463,135 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
                     })
 
         return Response(resultats, status=status.HTTP_200_OK)
+        # ═══════════════════════════════════════════════════════════
+    # OUVRIR LE PAD (ouverture directe du dossier local)
     # ═══════════════════════════════════════════════════════════
-    # OUVRIR LE PAD (génère un fichier .bat)
-    # ═══════════════════════════════════════════════════════════
-    @action(detail=True, methods=['get'], url_path='ouvrir-pad')
+    @action(detail=True, methods=['get', 'post'], url_path='ouvrir-pad')
     def ouvrir_pad(self, request, pk=None):
         """
-        Génère un fichier .bat qui ouvre le dossier du PAD :
-        - Mode LOCAL : ouvre D:\RadioAutomation\PAD-LOCAL
-        - Mode SMB   : se connecte au réseau et ouvre \\10.10.0.10\Z
+        Ouvre directement le dossier PAD local dans l'Explorateur Windows.
+        Aucun fichier .bat, aucun téléchargement, aucune credentials.
         """
-        from django.http import HttpResponse
+        import os
+        import sys
+        import subprocess
         from django.conf import settings
 
         fichier = self.get_object()
+        local_path = settings.PAD_LOCAL_PATH
 
-        # ═══ Déterminer le mode ═══
-        smb_enabled = getattr(settings, 'PAD_SMB_ENABLED', False)
-
-        if smb_enabled:
-            # ═══════════════════════════════════════════
-            # MODE SMB (PRODUCTION)
-            # ═══════════════════════════════════════════
-            username = request.query_params.get(
-                'username',
-                settings.PAD_SMB_USERNAME
+        # ═══ Vérifier que le dossier existe ═══
+        if not os.path.isdir(local_path):
+            return Response(
+                {'error': f'Dossier PAD introuvable : {local_path}'},
+                status=status.HTTP_404_NOT_FOUND
             )
-            password = request.query_params.get(
-                'password',
-                settings.PAD_SMB_PASSWORD
+
+        # ═══ Ouvrir le dossier selon le système ═══
+        try:
+            if sys.platform.startswith('win'):
+                # Windows : os.startfile ouvre directement l'Explorateur
+                os.startfile(local_path)
+            elif sys.platform == 'darwin':
+                # macOS
+                subprocess.Popen(['open', local_path])
+            else:
+                # Linux
+                subprocess.Popen(['xdg-open', local_path])
+        except Exception as e:
+            return Response(
+                {'error': f"Impossible d'ouvrir le PAD : {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            server_ip = settings.PAD_SMB_SERVER_IP
-            share = settings.PAD_SMB_SHARE
-
-            chemin_cible = f"\\\\{server_ip}\\{share}"
-
-            contenu = f'''@echo off
-chcp 65001 >nul
-title Ouverture du PAD (SMB) - Radio Tsiry
-color 0A
-
-echo ================================================
-echo    RADIO TSIRY - OUVERTURE DU PAD (SMB)
-echo ================================================
-echo.
-echo Fichier : {fichier.nomFichier}
-echo Serveur : {server_ip}
-echo Partage : {share}
-echo Chemin  : {chemin_cible}
-echo.
-
-REM === Se connecter au lecteur reseau ===
-echo Connexion au lecteur reseau...
-net use \\\\{server_ip}\\{share} /user:{username} {password} >nul 2>&1
-
-if errorlevel 1 (
-    echo [ERREUR] Echec de connexion.
-    echo Verifiez vos identifiants.
-    pause
-    exit /b 1
-)
-
-echo [OK] Connexion reussie.
-echo.
-
-REM === Ouvrir la racine du PAD ===
-echo Ouverture du PAD dans l'Explorateur...
-start "" "{chemin_cible}"
-
-echo.
-echo ================================================
-echo    PAD OUVERT - Vous pouvez fermer ceci
-echo ================================================
-timeout /t 3 >nul
-'''
-
-        else:
-            # ═══════════════════════════════════════════
-            # MODE LOCAL (SOUTENANCE)
-            # ═══════════════════════════════════════════
-            local_path = settings.PAD_LOCAL_PATH
-
-            contenu = f'''@echo off
-chcp 65001 >nul
-title Ouverture du PAD (LOCAL) - Radio Tsiry
-color 0A
-
-echo ================================================
-echo    RADIO TSIRY - OUVERTURE DU PAD (LOCAL)
-echo ================================================
-echo.
-echo Fichier : {fichier.nomFichier}
-echo Chemin  : {local_path}
-echo Mode    : LOCAL (développement / soutenance)
-echo.
-
-REM === Ouvrir le dossier local ===
-echo Ouverture du dossier local dans l'Explorateur...
-start "" "{local_path}"
-
-echo.
-echo ================================================
-echo    PAD LOCAL OUVERT - Vous pouvez fermer ceci
-echo ================================================
-timeout /t 3 >nul
-'''
-
-        # ═══ Réponse HTTP ═══
-        response = HttpResponse(
-            contenu,
-            content_type='application/bat; charset=utf-8'
+        return Response(
+            {
+                'success': True,
+                'path': local_path,
+                'fichier': fichier.nomFichier,
+                'message': 'PAD ouvert avec succès.',
+            },
+            status=status.HTTP_200_OK
         )
 
-        nom_fichier_bat = f"ouvrir_pad_{fichier.id}.bat"
-        response['Content-Disposition'] = (
-            f'attachment; filename="{nom_fichier_bat}"'
+    # ═══════════════════════════════════════════════════════════
+    # LISTER LES ARCHIVES
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=False, methods=['get'], url_path='archives')
+    def archives(self, request):
+        """
+        Liste tous les fichiers archivés avec leurs infos :
+        - Nom du fichier
+        - Date d'envoi au PAD
+        - Nom + téléphone du client
+        """
+        from .pad_service import lister_archives
+        from .models import FichierAudio
+
+        # ═══ 1. Fichiers sur le disque ═══
+        fichiers_disque = lister_archives()
+
+        # ═══ 2. Fichiers en DB (statut = Archivé) ═══
+        fichiers_db = FichierAudio.objects.filter(
+            statut='Archivé'
+        ).select_related('commande__client')
+
+        resultats = []
+
+        for fichier in fichiers_db:
+            commande = fichier.commande
+            client = commande.client if commande else None
+
+            resultats.append({
+                'id': fichier.id,
+                'nomFichier': fichier.nomFichier,
+                'dateEnvoiPAD': (
+                    fichier.dateEnvoiPAD.isoformat()
+                    if fichier.dateEnvoiPAD else None
+                ),
+                'dateArchive': (
+                    fichier.dateArchive.isoformat()
+                    if fichier.dateArchive else None
+                ),
+                'cheminArchive': fichier.cheminArchive,
+                'client': client.nom if client else '-',
+                'telephone': client.telephone if client else '-',
+                'commandeId': commande.id if commande else None,
+            })
+
+        # ═══ 3. Trier par dateArchive décroissante ═══
+        resultats.sort(
+            key=lambda x: x['dateArchive'] or '',
+            reverse=True
         )
 
-        return response
+        return Response(resultats, status=status.HTTP_200_OK)
+
+    # ═══════════════════════════════════════════════════════════
+    # NETTOYER LES DIFFUSIONS PASSÉES (manuel)
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=False, methods=['post'], url_path='nettoyer')
+    def nettoyer(self, request):
+        """
+        Archive les diffusions passées et supprime les fichiers du PAD.
+        """
+        from .pad_service import nettoyer_diffusions_passees
+
+        try:
+            resultats = nettoyer_diffusions_passees()
+
+            return Response({
+                'success': True,
+                'archives': resultats['archives'],
+                'erreurs': resultats['erreurs'],
+                'nb_archives': len(resultats['archives']),
+                'nb_erreurs': len(resultats['erreurs']),
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 # ==========================================
 # PROFIL UTILISATEUR CONNECTE

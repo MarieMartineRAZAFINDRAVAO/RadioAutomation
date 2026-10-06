@@ -327,8 +327,8 @@ class FichierAudio(models.Model):
         ('Transféré', 'Transféré'),
         ('En attente', 'En attente'),
         ('Échec', 'Échec'),
+        ('Archivé', 'Archivé'),
     ]
-
     commande = models.ForeignKey(
         Commande,
         on_delete=models.CASCADE,
@@ -373,10 +373,29 @@ class FichierAudio(models.Model):
         default='Disponible'
     )
 
+    # ═══ NOUVEAU : Archive ═══
+    dateEnvoiPAD = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Date du dernier envoi vers le PAD"
+    )
+
+    cheminArchive = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Chemin complet du fichier archivé"
+    )
+
+    dateArchive = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Date à laquelle le fichier a été archivé"
+    )
+
     class Meta:
         db_table = 'fichier_audio'
         ordering = ['-dateCreation']
-
     def __str__(self):
         return (
             f"{self.nomFichier} "
@@ -384,7 +403,7 @@ class FichierAudio(models.Model):
         )
 
     def envoyerVersPAD(self):
-        """
+        r"""
         Transfert du fichier audio vers le PAD.
 
         - Mode LOCAL : copie vers D:\RadioAutomation\PAD-LOCAL
@@ -394,9 +413,9 @@ class FichierAudio(models.Model):
         jour de la semaine de CHAQUE diffusion (Programmation).
         """
         import os
-        from datetime import datetime, date as date_type
+        from datetime import datetime, date as date_type, timedelta
         from django.conf import settings
-
+        from django.utils import timezone
         # ═══ 1. Vérifier le fichier source ═══
         if (
             not self.cheminOrdinateur
@@ -460,21 +479,72 @@ class FichierAudio(models.Model):
             else:
                 dates_diffusion.append(datetime.now().date())
 
-        # ═══ 6. FILTRER : garder uniquement les dates ≤ aujourd'hui ═══
+        # ═══ 6. Déterminer la SEMAINE EN COURS (Dimanche → Samedi) ═══
         aujourd_hui = date_type.today()
 
-        dates_diffusion = [
+        if aujourd_hui.weekday() == 6:
+            debut_semaine = aujourd_hui
+        else:
+            debut_semaine = aujourd_hui - timedelta(
+                days=(aujourd_hui.weekday() + 1)
+            )
+
+        fin_semaine = debut_semaine + timedelta(days=6)
+
+        # ═══ 6bis. Filtrer les dates À VENIR (dt_fin > maintenant) ═══
+        maintenant = timezone.now()
+
+        # Calculer la durée (depuis le tarif)
+        duree_min = 0
+        if self.commande:
+            premiere_ligne = self.commande.lignes.first()
+            if premiere_ligne and premiere_ligne.tarif:
+                duree_min = premiere_ligne.tarif.duree or 0
+
+        dates_avenir = []
+        for d in dates_diffusion:
+            # Récupérer l'heure de cette date
+            heure_prog = None
+            for p in programmations:
+                if p.dateDiffusion == d:
+                    heure_prog = p.heureDiffusion
+                    break
+
+            if not heure_prog:
+                dates_avenir.append(d)
+                continue
+
+            dt_diff = datetime.combine(d, heure_prog)
+            dt_diff = timezone.make_aware(dt_diff)
+            dt_fin = dt_diff + timedelta(minutes=duree_min)
+
+            # Garder uniquement les diffusions à venir
+            if dt_fin > maintenant:
+                dates_avenir.append(d)
+
+        dates_diffusion = dates_avenir
+
+        # ═══ 7. Filtrer : garder uniquement les dates de la semaine ═══
+        dates_semaine = [
             d for d in dates_diffusion
-            if d <= aujourd_hui
+            if debut_semaine <= d <= fin_semaine
         ]
 
-        if not dates_diffusion:
-            self.statut = 'En attente'
+        dates_futures = [
+            d for d in dates_diffusion
+            if d > fin_semaine
+        ]
+
+        # ═══ Cas : Aucune diffusion cette semaine ═══
+        if not dates_semaine:
+            if dates_futures:
+                # Il y a des diffusions futures → en attente
+                self.statut = 'En attente'
+            else:
+                # Toutes les diffusions sont passées → archivé
+                self.statut = 'Archivé'
             self.save(update_fields=['statut'])
-            raise ValueError(
-                "Aucune diffusion à envoyer aujourd'hui. "
-                "Les dates de diffusion sont dans le futur."
-            )
+            return None
 
         # ═══ 7. Envoyer vers chaque dossier correspondant ═══
         chemins_envoyes = []
@@ -497,7 +567,7 @@ class FichierAudio(models.Model):
                     password=settings.PAD_SMB_PASSWORD,
                 )
 
-                for date_diffusion in dates_diffusion:
+                for date_diffusion in dates_semaine:
                     jour_semaine = date_diffusion.weekday()
                     dossier_jour = JOURS_DOSSIERS.get(jour_semaine, '2-TALATA')
 
@@ -522,7 +592,7 @@ class FichierAudio(models.Model):
                 # ═══ Mode local (développement) ═══
                 import shutil
 
-                for date_diffusion in dates_diffusion:
+                for date_diffusion in dates_semaine:
                     jour_semaine = date_diffusion.weekday()
                     dossier_jour = JOURS_DOSSIERS.get(jour_semaine, '2-TALATA')
 
@@ -538,12 +608,21 @@ class FichierAudio(models.Model):
                     )
 
                     chemins_envoyes.append(f"{dossier_jour}/{nom_fichier}")
-
             # ═══ Mise à jour ═══
-            self.cheminPAD = ', '.join(chemins_envoyes)
-            self.statut = 'Transféré'
-            self.save(update_fields=['cheminPAD', 'statut'])
+            from django.utils import timezone as tz
 
+            self.cheminPAD = ', '.join(chemins_envoyes)
+            self.dateEnvoiPAD = tz.now()
+
+            # Si des diffusions restent pour les semaines suivantes
+            if dates_futures:
+                self.statut = 'En attente'
+            else:
+                self.statut = 'Transféré'
+
+            self.save(update_fields=[
+                'cheminPAD', 'statut', 'dateEnvoiPAD'
+            ])
         except Exception as e:
             self.statut = 'Échec'
             self.save(update_fields=['statut'])

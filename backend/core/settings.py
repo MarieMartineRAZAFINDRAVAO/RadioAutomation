@@ -115,6 +115,6 @@ PAD_SMB_SERVER_NAME = os.getenv('PAD_SMB_SERVER_NAME', 'SERVEUR')
 PAD_SMB_SHARE = os.getenv('PAD_SMB_SHARE', 'Partage')
 PAD_SMB_USERNAME = os.getenv('PAD_SMB_USERNAME', 'onair')
 PAD_SMB_PASSWORD = os.getenv('PAD_SMB_PASSWORD', '105')
-PAD_LOCAL_PATH = os.getenv('PAD_LOCAL_PATH', './pad_local')
+PAD_LOCAL_PATH = os.getenv('PAD_LOCAL_PATH', r'D:\RadioAutomation\PAD-LOCAL')
 PAD_READ_ONLY = os.getenv('PAD_READ_ONLY', 'False').lower() == 'true'
 PAD_LOG_OPERATIONS = os.getenv('PAD_LOG_OPERATIONS', 'True').lower() == 'true'

@@ -405,6 +405,65 @@ function App() {
     margin-right: 0.4rem;
     margin-top: 0.4rem;
   }
+
+    /* ═══ Animation 1 : RADIO TSIRY — Marquee (mivezivezy) ═══ */
+  @keyframes marqueeRadio {
+    0% {
+      transform: translateX(0);
+    }
+    50% {
+      transform: translateX(40px);
+    }
+    100% {
+      transform: translateX(0);
+    }
+  }
+
+  .radio-tsiry-animated {
+    display: inline-block;
+    animation: marqueeRadio 3s ease-in-out infinite;
+    white-space: nowrap;
+  }
+
+  /* ═══ Animation 2 : Texte — Miovaova loko ═══ */
+  @keyframes colorPulse {
+    0% {
+      color: #FFFFFF;
+    }
+    25% {
+      color: #86EFAC;
+    }
+    50% {
+      color: #FDE68A;
+    }
+    75% {
+      color: #93C5FD;
+    }
+    100% {
+      color: #FFFFFF;
+    }
+  }
+
+  .text-color-animated {
+    animation: colorPulse 4s ease-in-out infinite;
+  }
+
+  /* ═══ Animation 3 : Le trait (bonus) ═══ */
+  @keyframes barGrow {
+    0% {
+      width: 60px;
+    }
+    50% {
+      width: 100px;
+    }
+    100% {
+      width: 60px;
+    }
+  }
+
+  .bar-animated {
+    animation: barGrow 3s ease-in-out infinite;
+  }
 `}</style>
 
       {/* =====================================================
@@ -423,131 +482,154 @@ function App() {
           LOGIN / REGISTER
       ===================================================== */}
 
-      {(page === 'login' ||
+            {(page === 'login' ||
         page === 'register') && (
 
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
             minHeight: '100vh',
-            padding: '2rem',
+            backgroundColor: '#F5F8F6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '40px 20px',
+            fontFamily:
+              "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
           }}
         >
 
+          {/* ═══ CARTE PRINCIPALE ═══ */}
           <div
             style={{
-              display: 'flex',
-              width: '1150px',
-              maxWidth: '100%',
-              minHeight: '620px',
-              backgroundColor: cardBg,
-              borderRadius: '32px',
-              boxShadow:
-                '0 30px 60px rgba(0,0,0,0.15)',
+              width: '100%',
+              maxWidth: '980px',
+              backgroundColor: '#FFFFFF',
+              borderRadius: '28px',
+              boxShadow: '0 20px 60px rgba(0, 122, 77, 0.15)',
               overflow: 'hidden',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1.2fr',
+              minHeight: '600px',
             }}
           >
 
-            {/* =================================================
-                PANEL GAUCHE
-            ================================================= */}
-
+            {/* ═══ PARTIE GAUCHE — GRADIENT VERT ═══ */}
             <div
               style={{
-                flex: '1',
-                backgroundColor: mainColor,
-                color: '#FFFFFF',
-                padding: '4rem 3.2rem',
+                background:
+                  'linear-gradient(135deg, #007A4D 0%, #005C3A 60%, #002B1C 100%)',
+                padding: '50px 40px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                borderTopRightRadius: '180px',
-                borderBottomRightRadius: '180px',
+                color: '#FFFFFF',
+                position: 'relative',
+                overflow: 'hidden',
               }}
             >
 
-              <div>
+              {/* Cercles décoratifs */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '-80px',
+                  right: '-80px',
+                  width: '280px',
+                  height: '280px',
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '-100px',
+                  left: '-100px',
+                  width: '350px',
+                  height: '350px',
+                  borderRadius: '50%',
+                  background:
+                    'radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)',
+                  pointerEvents: 'none',
+                }}
+              />
 
-                <img
-                  src="/tsiry.jpg"
-                  alt="Radio Tsiry"
-                  style={{
-                    maxHeight: '90px',
-                    marginBottom: '1.8rem',
-                    borderRadius: '12px',
-                  }}
-                />
-
+             {/* Texte RADIO TSIRY (en haut) */}
+              <div style={{ position: 'relative', zIndex: 2 }}>
                 <h1
-                  className="animated-radio-title"
+                  className="radio-tsiry-animated"
                   style={{
-                    margin: '0 0 1.2rem 0',
+                    margin: 0,
+                    fontSize: '32px',
+                    fontWeight: 900,
+                    letterSpacing: '1px',
+                    color: '#FFFFFF',
                   }}
                 >
                   RADIO TSIRY
                 </h1>
-
-                <p
-                  style={{
-                    fontSize: '1.2rem',
-                    lineHeight: '1.7',
-                    opacity: 0.95,
-                  }}
-                >
-                  Plateforme de traitement
-                  des demandes de services,
-                  gestion des commandes
-                  et programmation de
-                  diffusion radio.
-                </p>
-
               </div>
 
-              <div>
-
-                <div
+              {/* Bloc central */}
+              <div style={{ position: 'relative', zIndex: 2 }}>
+                <p
                   style={{
-                    width: '60px',
-                    height: '4px',
-                    backgroundColor: '#86EFAC',
-                    marginBottom: '1.4rem',
-                  }}
-                />
-
-                <h4
-                  style={{
-                    fontSize: '1.1rem',
+                    margin: '0 0 20px',
+                    fontSize: '16px',
+                    fontWeight: 600,
+                    letterSpacing: '0.5px',
+                    color: 'rgba(255,255,255,0.85)',
                     textTransform: 'uppercase',
                   }}
                 >
-                  ESPACE PROFESSIONNEL
-                </h4>
+                  Vous pouvez facilement
+                </p>
+
+                <h2
+                  className="text-color-animated"
+                  style={{
+                    margin: 0,
+                    fontSize: '26px',
+                    fontWeight: 800,
+                    lineHeight: 1.35,
+                  }}
+                >
+                  Accéder à votre espace pour la gestion des
+                  commandes et la programmation de diffusion radio.
+                </h2>
+              </div>
+
+              {/* Bas de page */}
+              <div style={{ position: 'relative', zIndex: 2 }}>
+                <div
+                  className="bar-animated"
+                  style={{
+                    height: '3px',
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '2px',
+                    marginBottom: '20px',
+                  }}
+                />
 
                 <p
                   style={{
-                    fontSize: '1.1rem',
-                    opacity: 0.9,
+                    margin: 0,
+                    fontSize: '16px',
+                    fontWeight: 600,
+                    color: 'rgba(255,255,255,0.9)',
                   }}
                 >
-                  Connectez-vous pour
-                  accéder aux
-                  fonctionnalités.
+                  Connectez-vous pour accéder aux fonctionnalités.
                 </p>
-
               </div>
-
             </div>
 
-            {/* =================================================
-                FORMULAIRE
-            ================================================= */}
-
+            {/* ═══ PARTIE DROITE — FORMULAIRE ═══ */}
             <div
               style={{
-                flex: '1.2',
-                padding: '3rem 4rem',
+                padding: '50px 45px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
@@ -557,50 +639,49 @@ function App() {
               {/* =================================================
                   LOGIN
               ================================================= */}
-
               {page === 'login' ? (
-
                 <div>
 
-                  <h2
+                  <h1
                     style={{
-                      fontSize: '2.2rem',
+                      margin: '0 0 12px',
+                      fontSize: '36px',
                       fontWeight: 800,
+                      color: '#1F2937',
                     }}
                   >
                     Connexion
-                  </h2>
-
+                  </h1>
                   <p
                     style={{
-                      color: '#64748B',
-                      marginBottom: '2.2rem',
+                      margin: '0 0 35px',
+                      fontSize: '17px',
+                      color: '#6B7280',
+                      lineHeight: 1.5,
                     }}
                   >
-                    Accès à votre espace RADIO TSIRY
+                    Accès à votre espace <strong>RADIO TSIRY</strong>
                   </p>
-
                   {message && (
-                    <div style={successStyle}>
-                      {message}
-                    </div>
+                    <div style={successStyle}>{message}</div>
                   )}
 
                   {error && (
-                    <div style={errorStyle}>
-                      {error}
-                    </div>
+                    <div style={errorStyle}>{error}</div>
                   )}
 
                   <form onSubmit={handleLogin}>
 
-                    <div
-                      style={{
-                        marginBottom: '1.6rem',
-                      }}
-                    >
-
-                      <label style={labelStyle}>
+                    <div style={{ marginBottom: '20px' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          marginBottom: '8px',
+                          fontSize: '16px',
+                          fontWeight: 700,
+                          color: '#1F2937',
+                        }}
+                      >
                         Nom d'utilisateur
                       </label>
 
@@ -609,23 +690,24 @@ function App() {
                         placeholder="Votre nom d'utilisateur"
                         value={username}
                         onChange={(e) =>
-                          setUsername(
-                            e.target.value
-                          )
+                          setUsername(e.target.value)
                         }
                         required
-                        className="input-curved"
+                        autoFocus
+                        style={inputCurvedStyle}
                       />
-
                     </div>
 
-                    <div
-                      style={{
-                        marginBottom: '2.2rem',
-                      }}
-                    >
-
-                      <label style={labelStyle}>
+                    <div style={{ marginBottom: '28px' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          marginBottom: '8px',
+                          fontSize: '16px',
+                          fontWeight: 700,
+                          color: '#1F2937',
+                        }}
+                      >
                         Mot de passe
                       </label>
 
@@ -634,33 +716,82 @@ function App() {
                         placeholder="Votre mot de passe"
                         value={motDePasse}
                         onChange={(e) =>
-                          setMotDePasse(
-                            e.target.value
-                          )
+                          setMotDePasse(e.target.value)
                         }
                         required
-                        className="input-curved"
+                        style={inputCurvedStyle}
                       />
-
                     </div>
 
                     <button
                       type="submit"
-                      className="btn-modern-green"
+                      disabled={loading}
                       style={{
                         width: '100%',
+                        padding: '15px',
+                        border: 'none',
+                        borderRadius: '12px',
+                        backgroundColor: loading
+                          ? '#9CA3AF'
+                          : '#007A4D',
+                        color: '#FFFFFF',
+                        fontSize: '16px',
+                        fontWeight: 800,
+                        letterSpacing: '0.5px',
+                        cursor: loading ? 'wait' : 'pointer',
+                        transition: 'all 0.2s',
+                        boxShadow: loading
+                          ? 'none'
+                          : '0 10px 25px rgba(0, 122, 77, 0.25)',
                       }}
                     >
-                      SE CONNECTER
+                      {loading
+                        ? 'CONNEXION...'
+                        : 'SE CONNECTER'}
                     </button>
 
                   </form>
 
+                  {/* Séparateur */}
                   <div
                     style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      margin: '25px 0 20px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        flex: 1,
+                        height: '1px',
+                        backgroundColor: '#DDE8E2',
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: '13px',
+                        color: '#6B7280',
+                        fontWeight: 600,
+                      }}
+                    >
+                      ou
+                    </span>
+                    <div
+                      style={{
+                        flex: 1,
+                        height: '1px',
+                        backgroundColor: '#DDE8E2',
+                      }}
+                    />
+                  </div>
+
+                  <p
+                    style={{
+                      margin: 0,
                       textAlign: 'center',
-                      marginTop: '2rem',
-                      color: '#64748B',
+                      fontSize: '16px',
+                      color: '#6B7280',
                     }}
                   >
                     Pas encore de compte ?{' '}
@@ -672,23 +803,21 @@ function App() {
                         setMessage('');
                       }}
                       style={{
-                        color: mainColor,
+                        color: '#007A4D',
                         fontWeight: 800,
                         cursor: 'pointer',
-                        textDecoration:
-                          'underline',
                       }}
                     >
                       Créer un compte
                     </span>
 
-                  </div>
+                  </p>
 
-                  <div
+                  <p
                     style={{
+                      margin: '12px 0 0',
                       textAlign: 'center',
-                      marginTop: '1.5rem',
-                      fontSize: '0.9rem',
+                      fontSize: '13px',
                     }}
                   >
                     <span
@@ -698,246 +827,256 @@ function App() {
                         setMessage('');
                       }}
                       style={{
-                        color: '#64748B',
-                        fontWeight: 600,
+                        color: '#6B7280',
                         cursor: 'pointer',
-                        textDecoration: 'underline',
+                        fontWeight: 600,
                       }}
                     >
                       ← Retour à l'accueil
                     </span>
-                  </div>
+                  </p>
 
                 </div>
-
               ) : (
 
                 /* =================================================
                    REGISTER
                 ================================================= */
-
                 <div>
 
-                  <h2
+                  <h1
                     style={{
-                      fontSize: '2rem',
+                      margin: '0 0 10px',
+                      fontSize: '30px',
                       fontWeight: 800,
-                      color: mainColor,
+                      color: '#1F2937',
                     }}
                   >
                     Créer un compte
-                  </h2>
+                  </h1>
 
                   <p
                     style={{
-                      color: '#64748B',
-                      marginBottom: '1.5rem',
+                      margin: '0 0 25px',
+                      fontSize: '15px',
+                      color: '#6B7280',
                     }}
                   >
-                    Inscription au système RADIO TSIRY
+                    Inscription à l'espace <strong>RADIO TSIRY</strong>
                   </p>
 
                   {error && (
-                    <div style={errorStyle}>
-                      {error}
-                    </div>
+                    <div style={errorStyle}>{error}</div>
                   )}
 
                   <form onSubmit={handleRegister}>
 
                     <div
                       style={{
-                        display: 'flex',
-                        gap: '1.2rem',
-                        marginBottom: '1rem',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '15px',
+                        marginBottom: '15px',
                       }}
                     >
-
-                      <div style={{ flex: 1 }}>
-
-                        <label style={labelStyle}>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            color: '#1F2937',
+                          }}
+                        >
                           Nom
                         </label>
-
                         <input
                           type="text"
                           placeholder="Votre nom"
                           value={nom}
-                          onChange={handleTextOnly(
-                            setNom
-                          )}
+                          onChange={handleTextOnly(setNom)}
                           required
-                          className="input-curved"
+                          style={inputCurvedStyle}
                         />
-
                       </div>
 
-                      <div style={{ flex: 1 }}>
-
-                        <label style={labelStyle}>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            color: '#1F2937',
+                          }}
+                        >
                           Prénom
                         </label>
-
                         <input
                           type="text"
                           placeholder="Votre prénom"
                           value={prenom}
-                          onChange={handleTextOnly(
-                            setPrenom
-                          )}
+                          onChange={handleTextOnly(setPrenom)}
                           required
-                          className="input-curved"
+                          style={inputCurvedStyle}
                         />
-
                       </div>
-
                     </div>
 
-                    <div
-                      style={{
-                        marginBottom: '1rem',
-                      }}
-                    >
-
-                      <label style={labelStyle}>
+                    <div style={{ marginBottom: '15px' }}>
+                      <label
+                        style={{
+                          display: 'block',
+                          marginBottom: '8px',
+                          fontSize: '16px',
+                          fontWeight: 700,
+                          color: '#1F2937',
+                        }}
+                      >
                         Nom d'utilisateur
                       </label>
-
                       <input
                         type="text"
                         placeholder="Votre nom d'utilisateur"
                         value={username}
-                        onChange={handleTextOnly(
-                          setUsername
-                        )}
+                        onChange={handleTextOnly(setUsername)}
                         required
-                        className="input-curved"
+                        style={inputCurvedStyle}
                       />
-
                     </div>
 
                     <div
                       style={{
-                        display: 'flex',
-                        gap: '1.2rem',
-                        marginBottom: '0.5rem',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '15px',
+                        marginBottom: '10px',
                       }}
                     >
-
-                      <div style={{ flex: 1 }}>
-
-                        <label style={labelStyle}>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            color: '#1F2937',
+                          }}
+                        >
                           Mot de passe
                         </label>
-
                         <input
                           type="password"
                           placeholder="Mot de passe"
                           value={motDePasse}
                           onChange={(e) =>
-                            setMotDePasse(
-                              e.target.value
-                            )
+                            setMotDePasse(e.target.value)
                           }
                           required
-                          className="input-curved"
+                          style={inputCurvedStyle}
                         />
-
                       </div>
 
-                      <div style={{ flex: 1 }}>
-
-                        <label style={labelStyle}>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '8px',
+                            fontSize: '16px',
+                            fontWeight: 700,
+                            color: '#1F2937',
+                          }}
+                        >
                           Confirmation
                         </label>
-
                         <input
                           type="password"
                           placeholder="Confirmer"
                           value={confirmMotDePasse}
                           onChange={(e) =>
-                            setConfirmMotDePasse(
-                              e.target.value
-                            )
+                            setConfirmMotDePasse(e.target.value)
                           }
                           required
-                          className="input-curved"
+                          style={inputCurvedStyle}
                         />
-
                       </div>
-
                     </div>
 
-                    <div
-                      style={{
-                        marginBottom: '1.5rem',
-                      }}
-                    >
-
+                    <div style={{ marginBottom: '20px' }}>
                       <span
-                        className="badge-rule"
                         style={{
-                          backgroundColor:
-                            pwdHasLetter
-                              ? '#DCFCE7'
-                              : '#F1F5F9',
-
-                          color:
-                            pwdHasLetter
-                              ? '#15803D'
-                              : '#94A3B8',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          display: 'inline-block',
+                          marginRight: '6px',
+                          backgroundColor: pwdHasLetter
+                            ? '#DCFCE7'
+                            : '#F1F5F9',
+                          color: pwdHasLetter
+                            ? '#15803D'
+                            : '#94A3B8',
                         }}
                       >
-                        {pwdHasLetter
-                          ? '✓'
-                          : '○'} Lettre
+                        {pwdHasLetter ? '✓' : '○'} Lettre
                       </span>
 
                       <span
-                        className="badge-rule"
                         style={{
-                          backgroundColor:
-                            pwdHasNumber
-                              ? '#DCFCE7'
-                              : '#F1F5F9',
-
-                          color:
-                            pwdHasNumber
-                              ? '#15803D'
-                              : '#94A3B8',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          display: 'inline-block',
+                          marginRight: '6px',
+                          backgroundColor: pwdHasNumber
+                            ? '#DCFCE7'
+                            : '#F1F5F9',
+                          color: pwdHasNumber
+                            ? '#15803D'
+                            : '#94A3B8',
                         }}
                       >
-                        {pwdHasNumber
-                          ? '✓'
-                          : '○'} Chiffre
+                        {pwdHasNumber ? '✓' : '○'} Chiffre
                       </span>
 
                       <span
-                        className="badge-rule"
                         style={{
-                          backgroundColor:
-                            pwdHasSpecial
-                              ? '#DCFCE7'
-                              : '#F1F5F9',
-
-                          color:
-                            pwdHasSpecial
-                              ? '#15803D'
-                              : '#94A3B8',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          display: 'inline-block',
+                          backgroundColor: pwdHasSpecial
+                            ? '#DCFCE7'
+                            : '#F1F5F9',
+                          color: pwdHasSpecial
+                            ? '#15803D'
+                            : '#94A3B8',
                         }}
                       >
-                        {pwdHasSpecial
-                          ? '✓'
-                          : '○'} Caractère spécial
+                        {pwdHasSpecial ? '✓' : '○'} Caractère spécial
                       </span>
-
                     </div>
 
                     <button
                       type="submit"
-                      className="btn-modern-green"
                       style={{
                         width: '100%',
+                        padding: '15px',
+                        border: 'none',
+                        borderRadius: '12px',
+                        backgroundColor: '#007A4D',
+                        color: '#FFFFFF',
+                        fontSize: '16px',
+                        fontWeight: 800,
+                        letterSpacing: '0.5px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        boxShadow:
+                          '0 10px 25px rgba(0, 122, 77, 0.25)',
                       }}
                     >
                       S'INSCRIRE
@@ -945,11 +1084,12 @@ function App() {
 
                   </form>
 
-                  <div
+                  <p
                     style={{
+                      margin: '20px 0 0',
                       textAlign: 'center',
-                      marginTop: '1.5rem',
-                      color: '#64748B',
+                      fontSize: '16px',
+                      color: '#6B7280',
                     }}
                   >
                     Déjà un compte ?{' '}
@@ -961,28 +1101,23 @@ function App() {
                         setMessage('');
                       }}
                       style={{
-                        color: mainColor,
+                        color: '#007A4D',
                         fontWeight: 800,
                         cursor: 'pointer',
-                        textDecoration:
-                          'underline',
                       }}
                     >
                       Se connecter
                     </span>
 
-                  </div>
+                  </p>
 
                 </div>
               )}
 
             </div>
-
           </div>
-
         </div>
       )}
-
       {/* =====================================================
           APPLICATION
       ===================================================== */}
@@ -1212,40 +1347,45 @@ function App() {
 // STYLES
 // =========================================================
 
-const labelStyle = {
-  display: 'block',
-
-  fontSize: '1.05rem',
-
-  fontWeight: 800,
-
-  marginBottom: '0.4rem',
-
-  color: '#334155',
+const inputCurvedStyle = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '16px 18px',
+  border: '1.5px solid #DDE8E2',
+  borderRadius: '12px',
+  fontSize: '17px',
+  color: '#1F2937',
+  backgroundColor: '#F9FAFB',
+  outline: 'none',
+  transition: 'all 0.2s',
 };
 
+const labelStyle = {
+  display: 'block',
+  fontSize: '1.05rem',
+  fontWeight: 800,
+  marginBottom: '0.4rem',
+  color: '#334155',
+};
 const errorStyle = {
-  color: '#EF4444',
-
+  color: '#DC2626',
   backgroundColor: '#FEF2F2',
-
-  padding: '1rem',
-
+  border: '1px solid #FECACA',
+  padding: '12px 16px',
   borderRadius: '10px',
-
-  marginBottom: '1.2rem',
+  marginBottom: '20px',
+  fontSize: '16px',
+  fontWeight: 600,
 };
 
 const successStyle = {
-  color: '#16A34A',
-
+  color: '#15803D',
   backgroundColor: '#F0FDF4',
-
-  padding: '1rem',
-
+  border: '1px solid #BBF7D0',
+  padding: '12px 16px',
   borderRadius: '10px',
-
-  marginBottom: '1.2rem',
+  marginBottom: '20px',
+  fontSize: '16px',
+  fontWeight: 600,
 };
-
 export default App;
