@@ -155,21 +155,54 @@ def archiver_diffusion(prog):
     # ═══ 6. Copier vers archives ═══
     shutil.copy2(fichier.cheminOrdinateur, chemin_archive)
 
-    # ═══ 7. Supprimer du PAD (dossier jour) ═══
+       # ═══ 7. Supprimer du PAD (avec préfixe) ═══
     jour_semaine = prog.dateDiffusion.weekday()
     dossier_jour = JOURS_DOSSIERS.get(jour_semaine, '2-TALATA')
-    chemin_pad = os.path.join(
+    base_dir = os.path.join(
         settings.PAD_LOCAL_PATH,
-        dossier_jour,
-        nom_original
+        dossier_jour
     )
 
-    if os.path.exists(chemin_pad):
-        try:
-            os.remove(chemin_pad)
-        except Exception as e:
-            print(f"[PAD] Impossible de supprimer {chemin_pad} : {e}")
+    heure_str = prog.heureDiffusion.strftime('%Hh%M')
 
+    # ═══ 7a. Chercher dans le sous-dossier heure ═══
+    sous_dir = os.path.join(base_dir, heure_str)
+    supprime = False
+
+    if os.path.isdir(sous_dir):
+        for item in os.listdir(sous_dir):
+            if item.endswith(nom_original):
+                try:
+                    os.remove(os.path.join(sous_dir, item))
+                    print(f"[PAD] Supprimé : {dossier_jour}/{heure_str}/{item}")
+                    supprime = True
+                except Exception as e:
+                    print(f"[PAD] Erreur suppression : {e}")
+
+        # Supprimer le sous-dossier s'il est vide
+        try:
+            if os.path.isdir(sous_dir) and not os.listdir(sous_dir):
+                os.rmdir(sous_dir)
+                print(f"[PAD] Sous-dossier supprimé : {dossier_jour}/{heure_str}")
+        except Exception as e:
+            print(f"[PAD] Erreur suppression sous-dossier : {e}")
+
+    # ═══ 7b. Si pas trouvé → chercher dans le dossier jour ═══
+    if not supprime and os.path.isdir(base_dir):
+        for item in os.listdir(base_dir):
+            chemin_item = os.path.join(base_dir, item)
+
+            # Skip les sous-dossiers
+            if not os.path.isfile(chemin_item):
+                continue
+
+            if item.endswith(nom_original):
+                try:
+                    os.remove(chemin_item)
+                    print(f"[PAD] Supprimé : {dossier_jour}/{item}")
+                    supprime = True
+                except Exception as e:
+                    print(f"[PAD] Erreur suppression : {e}")
     # ═══ 8. Mise à jour Programmation ═══
     prog.statut = 'Archivé'
     prog.dateTraitement = tz.now()
@@ -215,7 +248,12 @@ def nettoyer_diffusions_passees():
 
     # ═══ Récupérer les programmations non archivées ═══
     programmations = Programmation.objects.filter(
-        statut__in=['À venir', 'Envoyé au PAD', 'Transfert en cours']
+        statut__in=[
+            'À venir',
+            'Envoyé au PAD',
+            'Transfert en cours',
+            'Archivé',  # ← ampiana mba hanamarina ny fichier
+        ]
     ).select_related('commande__client', 'fichierAudio')
 
     for prog in programmations:
@@ -247,12 +285,46 @@ def nettoyer_diffusions_passees():
         # ═══ Durée depuis le FICHIER AUDIO (en secondes) ═══
         duree_sec = fichier.duree or 0
 
-        dt_fin = dt_diffusion + timedelta(seconds=duree_sec)
+        # ═══ dt_fin = diffusion + durée + 1 minute (marge) ═══
+        dt_fin = (
+            dt_diffusion
+            + timedelta(seconds=duree_sec)
+            + timedelta(minutes=1)
+        )
 
         # Si pas encore terminé → skip
         if dt_fin > maintenant:
             continue
 
+        # ═══ Si déjà archivé → vérifier si le fichier existe dans archives/ ═══
+        if prog.statut == 'Archivé':
+            dossier_archives = os.path.join(
+                settings.PAD_LOCAL_PATH,
+                DOSSIER_ARCHIVES
+            )
+
+            # Chercher le fichier archive
+            prefix = (
+                f"{prog.dateDiffusion.strftime('%Y-%m-%d')}_"
+                f"{prog.heureDiffusion.strftime('%Hh%M')}_"
+            )
+
+            existe = False
+            if os.path.isdir(dossier_archives):
+                for nom in os.listdir(dossier_archives):
+                    if nom.startswith(prefix):
+                        existe = True
+                        break
+
+            if existe:
+                # Fichier déjà dans archives → skip
+                continue
+            else:
+                # Statut 'Archivé' mais fichier absent → re-archiver
+                print(
+                    f"[PAD] Prog #{prog.id} marquée 'Archivé' "
+                    f"mais fichier absent → ré-archivage..."
+                )
         # ═══ Archiver cette diffusion ═══
         try:
             chemin = archiver_diffusion(prog)
@@ -264,7 +336,32 @@ def nettoyer_diffusions_passees():
                 ),
                 'archive': chemin,
             })
+        except FileNotFoundError as e:
+            # ═══ Fichier source introuvable → 'Échéance passée' ═══
+            print(f"[PAD] Fichier introuvable Prog #{prog.id} : {e}")
+            prog.statut = 'Échéance passée'
+            prog.messageErreur = str(e)
+            prog.dateTraitement = timezone.now()
+            prog.save(update_fields=[
+                'statut', 'messageErreur', 'dateTraitement'
+            ])
+            resultats['erreurs'].append({
+                'programmation': prog.id,
+                'fichier': (
+                    prog.fichierAudio.nomFichier
+                    if prog.fichierAudio else '-'
+                ),
+                'erreur': f"Fichier introuvable : {e}",
+            })
         except Exception as e:
+            # ═══ Autre erreur → 'Échec' ═══
+            print(f"[PAD] Erreur archivage Prog #{prog.id} : {e}")
+            prog.statut = 'Échec'
+            prog.messageErreur = str(e)
+            prog.dateTraitement = timezone.now()
+            prog.save(update_fields=[
+                'statut', 'messageErreur', 'dateTraitement'
+            ])
             resultats['erreurs'].append({
                 'programmation': prog.id,
                 'fichier': (
@@ -272,9 +369,190 @@ def nettoyer_diffusions_passees():
                     if prog.fichierAudio else '-'
                 ),
                 'erreur': str(e),
-            })
+            })    
+     # ═══ NORMALISATION : anciens fichiers sans préfixe ═══
+    try:
+        resultats['normalisation'] = _normaliser_pad()
+    except Exception as e:
+        print(f"[PAD] Erreur normalisation : {e}")
+        resultats['normalisation'] = {'renommes': [], 'erreurs': [str(e)]}
+
+
+    # ═══ FANADIOVANA : fichiers orphelins ao amin'ny PAD ═══
+    try:
+        resultats['nettoyage'] = _nettoyer_pad_orphelins()
+    except Exception as e:
+        print(f"[PAD] Erreur nettoyage : {e}")
+        resultats['nettoyage'] = {'supprimes': [], 'erreurs': [str(e)]}
 
     return resultats
+
+
+def _nettoyer_pad_orphelins():
+    """
+    Mandeha amin'ny dossier andro rehetra ary mamafa ny fichiers
+    izay EFA MISY ao amin'ny archives/ (mitovy date + heure).
+
+    Ny fichiers "orphelins" dia :
+    - Mijanona tao amin'ny PAD
+    - Fa efa voarchive ny diffusion-ny (raha misy fichier hafa)
+    """
+    import re
+
+    dossier_archives = os.path.join(
+        settings.PAD_LOCAL_PATH,
+        DOSSIER_ARCHIVES
+    )
+
+    resultats = {
+        'supprimes': [],
+        'erreurs': [],
+    }
+
+    if not os.path.isdir(dossier_archives):
+        return resultats
+
+    # ═══ 1. Lister ny prefixes an'ny archives (YYYY-MM-DD_HHhMM) ═══
+    prefixes = set()
+
+    for nom in os.listdir(dossier_archives):
+        if nom in (FICHIER_HISTORIQUE, FICHIER_EXCEL):
+            continue
+
+        chemin = os.path.join(dossier_archives, nom)
+        if not os.path.isfile(chemin):
+            continue
+
+        # Extraire "2026-10-09_05h20" avy amin'ny anarana
+        match = re.match(
+            r'^(\d{4}-\d{2}-\d{2}_\d{2}h\d{2})_',
+            nom
+        )
+        if match:
+            prefixes.add(match.group(1))
+
+    if not prefixes:
+        return resultats
+
+    # ═══ 2. Mandeha amin'ny dossier andro rehetra ═══
+    for dossier_jour in JOURS_DOSSIERS.values():
+        chemin_jour = os.path.join(
+            settings.PAD_LOCAL_PATH,
+            dossier_jour
+        )
+
+        if not os.path.isdir(chemin_jour):
+            continue
+
+        # ═══ 2a. Fichiers ao amin'ny dossier andro (direct) ═══
+        for item in os.listdir(chemin_jour):
+            chemin_item = os.path.join(chemin_jour, item)
+
+            if os.path.isfile(chemin_item):
+                continue  # Fichier direct — tsy fafana (mbola ilaina)
+
+            # ═══ 2b. Sous-dossier (05h20/, 12h30/, ...) ═══
+            heure_sous = item.strip()
+
+            for nom_fichier in os.listdir(chemin_item):
+                chemin_fichier = os.path.join(
+                    chemin_item, nom_fichier
+                )
+
+                if not os.path.isfile(chemin_fichier):
+                    continue
+
+                # ═══ Jereo raha misy archive amin'io heure io ═══
+                for prefix in prefixes:
+                    if prefix.endswith(f"_{heure_sous}"):
+                        # ═══ Voafafa ao amin'ny PAD ═══
+                        try:
+                            os.remove(chemin_fichier)
+                            resultats['supprimes'].append(
+                                f"{dossier_jour}/{heure_sous}/{nom_fichier}"
+                            )
+                            print(
+                                f"[PAD] Orphelin nettoyé : "
+                                f"{dossier_jour}/{heure_sous}/{nom_fichier}"
+                            )
+                        except Exception as e:
+                            resultats['erreurs'].append(
+                                f"{chemin_fichier} : {e}"
+                            )
+                        break
+
+            # ═══ 2c. Esory ny sous-dossier raha foana ═══
+            try:
+                if (
+                    os.path.isdir(chemin_item)
+                    and not os.listdir(chemin_item)
+                ):
+                    os.rmdir(chemin_item)
+                    print(
+                        f"[PAD] Sous-dossier supprimé : "
+                        f"{dossier_jour}/{heure_sous}"
+                    )
+            except Exception:
+                pass
+
+    return resultats
+
+def _normaliser_pad():
+    """
+    Détecte les fichiers dans le PAD qui n'ont PAS le bon préfixe
+    (heure_ ou NN_) et relance envoyerVersPAD() pour les recréer.
+    """
+    from .models import FichierAudio
+    from datetime import date as date_type, timedelta
+
+    resultats = {'renommes': [], 'erreurs': []}
+
+    aujourd_hui = date_type.today()
+    debut_semaine = aujourd_hui - timedelta(days=aujourd_hui.weekday())
+    fin_semaine = debut_semaine + timedelta(days=6)
+
+    fichiers = FichierAudio.objects.filter(
+        programmations__dateDiffusion__gte=debut_semaine,
+        programmations__dateDiffusion__lte=fin_semaine,
+        statut__in=['Transféré', 'En attente', 'Disponible'],
+    ).distinct()
+
+    for f in fichiers:
+        try:
+            if not f.cheminPAD:
+                continue
+
+            besoin_renommer = False
+
+            for chemin in f.cheminPAD.split(', '):
+                chemin = chemin.strip()
+                if not chemin:
+                    continue
+
+                chemin_complet = os.path.join(
+                    settings.PAD_LOCAL_PATH,
+                    *chemin.replace('\\', '/').split('/')
+                )
+
+                if not os.path.exists(chemin_complet):
+                    continue
+
+                nom = os.path.basename(chemin_complet)
+
+                if not re.match(r'^(\d{2}h\d{2}_|\d{2}_)', nom):
+                    besoin_renommer = True
+                    break
+
+            if besoin_renommer:
+                f.envoyerVersPAD()
+                resultats['renommes'].append(f.nomFichier)
+                print(f"[PAD] Normalisé : {f.nomFichier}")
+
+        except Exception as e:
+            resultats['erreurs'].append(f"{f.nomFichier} : {e}")
+
+    return resultats
+
 
 # ═══════════════════════════════════════════════════
 # 4. ENVOYER LES FICHIERS EN ATTENTE
@@ -288,11 +566,17 @@ def envoyer_fichiers_en_attente():
     Appelé par le scheduler chaque minute.
     """
     from .models import FichierAudio
+    from datetime import date as date_type, timedelta
 
     resultats = {
         'envoyes': [],
         'erreurs': [],
     }
+
+    # ═══ Semaine en cours ═══
+    aujourd_hui = date_type.today()
+    debut_semaine = aujourd_hui - timedelta(days=aujourd_hui.weekday())
+    fin_semaine = debut_semaine + timedelta(days=6)
 
     fichiers = FichierAudio.objects.filter(
         statut='En attente'
@@ -300,12 +584,30 @@ def envoyer_fichiers_en_attente():
 
     for fichier in fichiers:
         try:
+            # ═══ Jereo raha misy diffusion amin'ity herinandro ity ═══
+            progs_semaine = fichier.programmations.filter(
+                dateDiffusion__gte=debut_semaine,
+                dateDiffusion__lte=fin_semaine,
+            )
+
+            if not progs_semaine.exists():
+                # Mbola tsy tonga ny herinandro → skip
+                continue
+
+            # ═══ Alefa ny fichier ═══
+            fichier.statut = 'Disponible'  # reset mba handeha
+            fichier.cheminPAD = None
+            fichier.save(update_fields=['statut', 'cheminPAD'])
+
             chemin = fichier.envoyerVersPAD()
+
             if chemin:
                 resultats['envoyes'].append({
                     'fichier': fichier.nomFichier,
                     'chemins': chemin,
                 })
+                print(f"[PAD] Envoyé (semaine) : {fichier.nomFichier}")
+
         except Exception as e:
             resultats['erreurs'].append({
                 'fichier': fichier.nomFichier,
@@ -360,11 +662,15 @@ def lister_archives():
 
     return fichiers
 
+
 def ajouter_ligne_historique(prog, chemin_archive):
     """
     Ajoute une ligne dans historique_archives.csv
-    pour UNE diffusion (Programmation).
-    + régénère historique_archives.xlsx
+    avec TRI : voarchive farany → ambony.
+
+    - Si le CSV est libre → écrire dedans
+    - Si le CSV est ouvert dans Excel (locked)
+      → écrire dans un fichier _temp
     """
     dossier_archives = os.path.join(
         settings.PAD_LOCAL_PATH,
@@ -372,8 +678,9 @@ def ajouter_ligne_historique(prog, chemin_archive):
     )
     os.makedirs(dossier_archives, exist_ok=True)
 
-    chemin_csv = os.path.join(dossier_archives, FICHIER_HISTORIQUE)
-    fichier_existe = os.path.exists(chemin_csv)
+    chemin_csv = os.path.join(
+        dossier_archives, FICHIER_HISTORIQUE
+    )
 
     # ═══ 1. Infos client ═══
     commande = prog.commande
@@ -409,34 +716,169 @@ def ajouter_ligne_historique(prog, chemin_archive):
         if prog.fichierAudio else '-'
     )
 
-    # ═══ 5. Écrire dans le CSV (ordre = ENTETES_HISTORIQUE) ═══
-    with open(
-        chemin_csv, mode='a', newline='', encoding='utf-8-sig'
-    ) as f:
-        writer = csv.writer(f, delimiter=';')
+    # ═══ 5. Préparer la ligne ═══
+    ligne = [
+        date_archive,
+        date_diff,
+        heure_diff,
+        heure_archive,
+        nom_client,
+        telephone_client,
+        nom_fichier,
+        os.path.basename(chemin_archive),
+    ]
 
-        if not fichier_existe:
-            writer.writerow(ENTETES_HISTORIQUE)
-
-        writer.writerow([
-            date_archive,     # 1. Date archive
-            date_diff,        # 2. Date diffusion
-            heure_diff,       # 3. Heure diffusion
-            heure_archive,    # 4. Heure archive
-            nom_client,       # 5. Client
-            telephone_client, # 6. Téléphone
-            nom_fichier,      # 7. Nom fichier
-            os.path.basename(chemin_archive),  # 8. Fichier archive
-        ])
-
-    # ═══ 6. Régénérer l'Excel ═══
+    # ═══ 6. Essayer d'écrire dans le CSV principal (avec tri) ═══
     try:
-        exporter_historique_excel()
-    except Exception as e:
-        print(f"[PAD] Erreur Excel : {e}")
+        _ecrire_csv_trie(chemin_csv, ligne)
+        print(f"[PAD] Ligne ajoutée dans CSV principal")
+
+    except PermissionError:
+        # ═══ CSV ouvert dans Excel → écrire dans _temp ═══
+        chemin_temp = chemin_csv.replace('.csv', '_temp.csv')
+
+        try:
+            _ecrire_csv_trie(chemin_temp, ligne)
+            print(
+                f"[PAD] CSV principal locked → ligne ajoutée dans "
+                f"{os.path.basename(chemin_temp)}"
+            )
+        except Exception as e:
+            print(f"[PAD] Impossible d'écrire le CSV temp : {e}")
+
+    # ═══ 7. Essayer de fusionner le _temp avec le principal ═══
+    _fusionner_csv_temp(chemin_csv)
 
     return chemin_csv
 
+
+def _ecrire_csv_trie(chemin_csv, nouvelle_ligne):
+    """
+    Écrit une ligne dans le CSV en gardant le TRI :
+    voarchive farany → ambony (desc).
+
+    Raha tsy misy ny fichier → mamorona azy.
+    Raha misy → mamaky ny données, manampy, mandamina, manoratra.
+    """
+    # ═══ 1. Lire les lignes existantes ═══
+    lignes = []
+
+    if os.path.exists(chemin_csv):
+        with open(
+            chemin_csv, mode='r', encoding='utf-8-sig'
+        ) as f:
+            reader = csv.reader(f, delimiter=';')
+            for l in reader:
+                if l:
+                    lignes.append(l)
+
+    # ═══ 2. Retirer les en-têtes ═══
+    entetes = []
+    if lignes and lignes[0] == ENTETES_HISTORIQUE:
+        entetes = lignes[0]
+        lignes = lignes[1:]
+    else:
+        entetes = ENTETES_HISTORIQUE
+
+    # ═══ 3. Ajouter la nouvelle ligne ═══
+    lignes.append(nouvelle_ligne)
+
+    # ═══ 4. Trier par Date archive (desc) puis Heure archive (desc) ═══
+    def cle_tri(l):
+        date = l[0] if len(l) > 0 else ''
+        heure = l[3] if len(l) > 3 else ''
+        try:
+            j, m, a = date.split('/')
+            return f"{a}-{m}-{j} {heure}"
+        except Exception:
+            return ''
+
+    lignes.sort(key=cle_tri, reverse=True)
+
+    # ═══ 5. Écrire (en-têtes + lignes triées) ═══
+    with open(
+        chemin_csv, mode='w', newline='', encoding='utf-8-sig'
+    ) as f:
+        writer = csv.writer(f, delimiter=';')
+        writer.writerow(entetes)
+        writer.writerows(lignes)
+
+def _fusionner_csv_temp(chemin_csv):
+    """
+    Fusionne le fichier _temp avec le CSV principal
+    si le CSV principal n'est plus verrouillé (Excel fermé).
+
+    Re-tri automatiquement après fusion.
+    """
+    chemin_temp = chemin_csv.replace('.csv', '_temp.csv')
+
+    if not os.path.exists(chemin_temp):
+        return
+
+    # ═══ Essayer d'ouvrir le CSV principal en écriture ═══
+    try:
+        with open(
+            chemin_csv, mode='a', newline='', encoding='utf-8-sig'
+        ) as f:
+            pass
+
+        print(
+            f"[PAD] Fusion de {os.path.basename(chemin_temp)} "
+            f"→ CSV principal"
+        )
+
+        # ═══ Lire TOUTES les lignes (principal + temp) ═══
+        lignes = []
+
+        if os.path.exists(chemin_csv):
+            with open(
+                chemin_csv, mode='r', encoding='utf-8-sig'
+            ) as f:
+                reader = csv.reader(f, delimiter=';')
+                for l in reader:
+                    if l:
+                        lignes.append(l)
+
+        with open(
+            chemin_temp, mode='r', encoding='utf-8-sig'
+        ) as f:
+            reader = csv.reader(f, delimiter=';')
+            for l in reader:
+                if l:
+                    lignes.append(l)
+
+        # ═══ Retirer les en-têtes en double ═══
+        entetes = ENTETES_HISTORIQUE
+        data = [l for l in lignes if l != ENTETES_HISTORIQUE]
+
+        # ═══ Trier ═══
+        def cle_tri(l):
+            date = l[0] if len(l) > 0 else ''
+            heure = l[3] if len(l) > 3 else ''
+            try:
+                j, m, a = date.split('/')
+                return f"{a}-{m}-{j} {heure}"
+            except Exception:
+                return ''
+
+        data.sort(key=cle_tri, reverse=True)
+
+        # ═══ Écrire ═══
+        with open(
+            chemin_csv, mode='w', newline='', encoding='utf-8-sig'
+        ) as f:
+            writer = csv.writer(f, delimiter=';')
+            writer.writerow(entetes)
+            writer.writerows(data)
+
+        os.remove(chemin_temp)
+        print(f"[PAD] Fichier _temp fusionné et trié")
+
+    except PermissionError:
+        pass
+
+    except Exception as e:
+        print(f"[PAD] Erreur fusion : {e}")
 
 # ═══════════════════════════════════════════════════
 # 6. EXPORTER L'HISTORIQUE EN EXCEL
@@ -564,9 +1006,18 @@ def exporter_historique_excel():
         wb.save(chemin_xlsx)
         return chemin_xlsx
     except PermissionError:
-        # Le fichier est ouvert dans Excel → ignorer
-        print(
-            f"[PAD] Impossible d'écrire {chemin_xlsx} "
-            f"(fichier ouvert dans Excel ?)"
-        )
-        return None
+        # Le fichier est ouvert dans Excel
+        # → Sauvegarder dans un fichier avec suffixe "_new"
+        try:
+            chemin_new = chemin_xlsx.replace(
+                '.xlsx', '_new.xlsx'
+            )
+            wb.save(chemin_new)
+            print(
+                f"[PAD] Excel ouvert — sauvegardé dans : "
+                f"{os.path.basename(chemin_new)}"
+            )
+            return chemin_new
+        except Exception as e:
+            print(f"[PAD] Impossible d'écrire l'Excel : {e}")
+            return None

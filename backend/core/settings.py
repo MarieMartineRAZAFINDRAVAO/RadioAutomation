@@ -21,7 +21,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework_simplejwt',
     # Local apps
-    'radio_app',
+    'radio_app.apps.RadioAppConfig',
 ]
 
 AUTH_USER_MODEL = 'radio_app.Utilisateur'

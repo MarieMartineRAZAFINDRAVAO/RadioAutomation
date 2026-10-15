@@ -29,6 +29,10 @@ const MENUS = [
     id: 'programmation',
     label: 'Programmation',
   },
+  {
+    id: 'pad-config',
+    label: 'Configuration',
+  },
 ];
 
 export default function Navbar({

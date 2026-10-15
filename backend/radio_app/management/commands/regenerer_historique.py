@@ -103,7 +103,21 @@ class Command(BaseCommand):
                 fichier_archive,     # 8. Fichier archive
             ])
 
-        # ═══ 3. Écrire le CSV ═══
+        # ═══ 3. Trier les lignes (vaovao → taloha) ═══
+        def cle_tri(ligne):
+            # ligne[0] = Date archive (jj/mm/aaaa)
+            # ligne[3] = Heure archive (hh:mm)
+            date = ligne[0] if len(ligne) > 0 else ''
+            heure = ligne[3] if len(ligne) > 3 else ''
+            try:
+                j, m, a = date.split('/')
+                return f"{a}-{m}-{j} {heure}"
+            except Exception:
+                return ''
+
+        lignes.sort(key=cle_tri, reverse=True)
+
+        # ═══ 4. Écrire le CSV ═══
         with open(
             chemin_csv, mode='w', newline='', encoding='utf-8-sig'
         ) as f:
@@ -113,7 +127,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"[PAD] {len(lignes)} ligne(s) écrite(s) dans le CSV."
+                f"[PAD] {len(lignes)} ligne(s) écrite(s) dans le CSV (triées)."
             )
         )
 

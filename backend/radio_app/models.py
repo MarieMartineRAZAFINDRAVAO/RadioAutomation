@@ -315,7 +315,41 @@ class Document(models.Model):
             f"Doc {self.id} - "
             f"{self.typeDocument}"
         )
+# ============================================================
+# PAD CONFIG
+# ============================================================
 
+class PadConfig(models.Model):
+    idPadConfig = models.AutoField(primary_key=True)
+
+    nomReseau = models.CharField(
+        max_length=200,
+        help_text="Nom du réseau (ex : onair, studio)"
+    )
+
+    dossier = models.CharField(
+        max_length=200,
+        help_text="Chemin partagé (ex : \\\\onair\\z)"
+    )
+
+    nomUtilisateur = models.CharField(
+        max_length=200,
+        help_text="Nom d'utilisateur réseau"
+    )
+
+    motDePasse = models.CharField(
+        max_length=200,
+        help_text="Mot de passe réseau"
+    )
+
+    dateCreation = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'pad_config'
+        ordering = ['nomReseau']
+
+    def __str__(self):
+        return f"{self.nomReseau} ({self.dossier})"
 
 # ============================================================
 # FICHIER AUDIO
@@ -329,6 +363,12 @@ class FichierAudio(models.Model):
         ('Échec', 'Échec'),
         ('Archivé', 'Archivé'),
     ]
+
+    PAD_MODE_CHOICES = [
+        ('local', 'Local'),
+        ('original', 'Original'),
+    ]
+
     commande = models.ForeignKey(
         Commande,
         on_delete=models.CASCADE,
@@ -336,6 +376,23 @@ class FichierAudio(models.Model):
         db_column='idCommande',
     )
 
+    # ═══ NOUVEAU : Configuration PAD ═══
+    padMode = models.CharField(
+        max_length=20,
+        choices=PAD_MODE_CHOICES,
+        default='local',
+        help_text="Mode d'envoi : local ou original"
+    )
+
+    idPadConfig = models.ForeignKey(
+        PadConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fichiersAudio',
+        db_column='idPadConfig',
+        help_text="Configuration réseau utilisée (si padMode = original)"
+    )
     nomFichier = models.CharField(max_length=255)
 
     cheminOrdinateur = models.CharField(
@@ -406,16 +463,21 @@ class FichierAudio(models.Model):
         r"""
         Transfert du fichier audio vers le PAD.
 
-        - Mode LOCAL : copie vers D:\RadioAutomation\PAD-LOCAL
-        - Mode SMB   : copie vers \\10.10.0.10\Z
-
-        Le fichier est copié dans le dossier correspondant au
-        jour de la semaine de CHAQUE diffusion (Programmation).
+        Règles :
+        - Copie UNIQUEMENT les diffusions de la SEMAINE EN COURS
+          (Lundi → Dimanche)
+        - Si 1 diffusion pour ce fichier un jour donné
+          → copie directe : 5-ZOMA/fichier.m4a
+        - Si 2+ diffusions pour ce fichier un même jour
+          → sous-dossier par heure : 5-ZOMA/05h20/fichier.m4a
         """
         import os
+        import shutil
+        from collections import defaultdict
         from datetime import datetime, date as date_type, timedelta
         from django.conf import settings
         from django.utils import timezone
+
         # ═══ 1. Vérifier le fichier source ═══
         if (
             not self.cheminOrdinateur
@@ -424,13 +486,12 @@ class FichierAudio(models.Model):
             self.statut = 'Échec'
             self.save(update_fields=['statut'])
             raise FileNotFoundError(
-                "Fichier introuvable sur "
-                f"l'ordinateur : {self.cheminOrdinateur}"
+                f"Fichier introuvable : {self.cheminOrdinateur}"
             )
 
         nom_fichier = os.path.basename(self.cheminOrdinateur)
 
-                # ═══ 2. Vérifier extension audio ═══
+        # ═══ 2. Vérifier extension audio ═══
         extensions_audio = [
             '.mp3', '.wav', '.m4a', '.aac',
             '.ogg', '.flac', '.wma', '.opus',
@@ -442,8 +503,7 @@ class FichierAudio(models.Model):
             self.statut = 'Échec'
             self.save(update_fields=['statut'])
             raise ValueError(
-                f"Format audio non supporté : {extension}. "
-                f"Formats acceptés : {', '.join(extensions_audio)}"
+                f"Format audio non supporté : {extension}"
             )
 
         # ═══ 3. Mapping jours → dossiers PAD ═══
@@ -457,164 +517,173 @@ class FichierAudio(models.Model):
             6: '0- ALAHADY',      # Dimanche
         }
 
-        # ═══ 4. Récupérer toutes les dates de diffusion ═══
-        programmations = (
+        # ═══ 4. Récupérer les programmations de la commande ═══
+        programmations = list(
             self.commande.programmations.all()
-            if self.commande
-            else []
-        )
+        ) if self.commande else []
 
-        # ═══ 5. INITIALISER dates_diffusion (AVANT le filtre) ═══
-        dates_diffusion = []
+        # ═══ 5. Grouper par date ═══
+        par_date = defaultdict(list)
+        for prog in programmations:
+            if prog.dateDiffusion:
+                par_date[prog.dateDiffusion].append(prog)
 
-        if programmations:
-            vues = set()
-            for prog in programmations:
-                if prog.dateDiffusion and prog.dateDiffusion not in vues:
-                    dates_diffusion.append(prog.dateDiffusion)
-                    vues.add(prog.dateDiffusion)
-        else:
-            if self.commande and self.commande.dateDebut:
-                dates_diffusion.append(self.commande.dateDebut)
-            else:
-                dates_diffusion.append(datetime.now().date())
-
-        # ═══ 6. Déterminer la SEMAINE EN COURS (Dimanche → Samedi) ═══
+        # ═══ 6. Déterminer la SEMAINE EN COURS (Lundi → Dimanche) ═══
         aujourd_hui = date_type.today()
 
-        if aujourd_hui.weekday() == 6:
-            debut_semaine = aujourd_hui
-        else:
-            debut_semaine = aujourd_hui - timedelta(
-                days=(aujourd_hui.weekday() + 1)
-            )
-
+        # Alatsinainy = 0, Alahady = 6
+        debut_semaine = aujourd_hui - timedelta(
+            days=aujourd_hui.weekday()
+        )
         fin_semaine = debut_semaine + timedelta(days=6)
 
-        # ═══ 6bis. Filtrer les dates À VENIR (dt_fin > maintenant) ═══
-        maintenant = timezone.now()
-
-        # Calculer la durée (depuis le tarif)
-        duree_min = 0
-        if self.commande:
-            premiere_ligne = self.commande.lignes.first()
-            if premiere_ligne and premiere_ligne.tarif:
-                duree_min = premiere_ligne.tarif.duree or 0
-
-        dates_avenir = []
-        for d in dates_diffusion:
-            # Récupérer l'heure de cette date
-            heure_prog = None
-            for p in programmations:
-                if p.dateDiffusion == d:
-                    heure_prog = p.heureDiffusion
-                    break
-
-            if not heure_prog:
-                dates_avenir.append(d)
-                continue
-
-            dt_diff = datetime.combine(d, heure_prog)
-            dt_diff = timezone.make_aware(dt_diff)
-            dt_fin = dt_diff + timedelta(minutes=duree_min)
-
-            # Garder uniquement les diffusions à venir
-            if dt_fin > maintenant:
-                dates_avenir.append(d)
-
-        dates_diffusion = dates_avenir
-
-        # ═══ 7. Filtrer : garder uniquement les dates de la semaine ═══
+        # ═══ 7. Filtrer les dates de la semaine ═══
         dates_semaine = [
-            d for d in dates_diffusion
+            d for d in par_date.keys()
             if debut_semaine <= d <= fin_semaine
         ]
-
         dates_futures = [
-            d for d in dates_diffusion
+            d for d in par_date.keys()
             if d > fin_semaine
         ]
 
         # ═══ Cas : Aucune diffusion cette semaine ═══
         if not dates_semaine:
             if dates_futures:
-                # Il y a des diffusions futures → en attente
                 self.statut = 'En attente'
+                # ═══ Mettre à jour les Programmations ═══
+                for prog in self.programmations.all():
+                    if prog.statut in ('À venir', 'En attente', 'Envoyé au PAD'):
+                        prog.statut = 'En attente'
+                        prog.save(update_fields=['statut'])
             else:
-                # Toutes les diffusions sont passées → archivé
                 self.statut = 'Archivé'
+                # ═══ Mettre à jour les Programmations ═══
+                for prog in self.programmations.all():
+                    if prog.statut in ('À venir', 'En attente', 'Envoyé au PAD'):
+                        prog.statut = 'Archivé'
+                        prog.dateTraitement = timezone.now()
+                        prog.save(update_fields=['statut', 'dateTraitement'])
             self.save(update_fields=['statut'])
             return None
 
-        # ═══ 7. Envoyer vers chaque dossier correspondant ═══
+        # ═══ 8. Copier vers le PAD (Chronologique + FIFO) ═══
         chemins_envoyes = []
 
         try:
-            if getattr(settings, 'PAD_SMB_ENABLED', False):
-                # ═══ Mode SMB2/SMB3 avec smbprotocol ═══
-                import smbclient
+            # ═══ Récupérer TOUTES les programmations de la semaine ═══
+            from radio_app.models import Programmation as Prog
 
-                # Nettoyer le cache
-                try:
-                    smbclient.reset_connection_cache()
-                except Exception:
-                    pass
+            tous_prog = Prog.objects.filter(
+                dateDiffusion__in=dates_semaine,
+                fichierAudio__isnull=False,
+            ).select_related('fichierAudio', 'commande')
 
-                # Enregistrer une nouvelle session SMB
-                smbclient.register_session(
-                    settings.PAD_SMB_SERVER_IP,
-                    username=settings.PAD_SMB_USERNAME,
-                    password=settings.PAD_SMB_PASSWORD,
+            # ═══ Construire la liste avec toutes les infos ═══
+            liste = []
+            for p in tous_prog:
+                liste.append({
+                    'fichier_id': p.fichierAudio.id,
+                    'fichier_nom': p.fichierAudio.nomFichier,
+                    'date': p.dateDiffusion,
+                    'heure': p.heureDiffusion,
+                    'date_commande': (
+                        p.commande.dateCommande
+                        if p.commande else timezone.now()
+                    ),
+                })
+
+            # ═══ Trier : par date → heure → date_commande (FIFO) ═══
+            liste.sort(key=lambda x: (
+                x['date'],
+                x['heure'],
+                x['date_commande'],
+            ))
+
+            # ═══ Traiter par jour ═══
+            from itertools import groupby
+
+            for date_diff, items_jour in groupby(
+                liste, key=lambda x: x['date']
+            ):
+                items_jour = list(items_jour)
+
+                jour_semaine = date_diff.weekday()
+                dossier_jour = JOURS_DOSSIERS.get(
+                    jour_semaine, '2-TALATA'
+                )
+                base_dir = os.path.join(
+                    settings.PAD_LOCAL_PATH,
+                    dossier_jour
                 )
 
-                for date_diffusion in dates_semaine:
-                    jour_semaine = date_diffusion.weekday()
-                    dossier_jour = JOURS_DOSSIERS.get(jour_semaine, '2-TALATA')
+                # ═══ Grouper par heure ═══
+                for heure, items_heure in groupby(
+                    items_jour, key=lambda x: x['heure']
+                ):
+                    items_heure = list(items_heure)
+                    heure_str = heure.strftime('%Hh%M')
 
-                    # Chemin UNC Windows
-                    chemin_unc = (
-                        f"\\\\{settings.PAD_SMB_SERVER_IP}\\"
-                        f"{settings.PAD_SMB_SHARE}\\"
-                        f"{dossier_jour}\\"
-                        f"{nom_fichier}"
-                    )
+                    # ═══ 1 seule diffusion à cette heure ═══
+                    if len(items_heure) == 1:
+                        item = items_heure[0]
 
-                    # Copier le fichier via SMB
-                    with open(self.cheminOrdinateur, 'rb') as src:
-                        data = src.read()
+                        # ═══ Ne traiter que CE fichier ═══
+                        if item['fichier_id'] != self.id:
+                            continue
 
-                    with smbclient.open_file(chemin_unc, mode='wb') as dst:
-                        dst.write(data)
+                        os.makedirs(base_dir, exist_ok=True)
 
-                    chemins_envoyes.append(f"{dossier_jour}/{nom_fichier}")
+                        # Nom : heure_ + nom (pour tri chronologique)
+                        nom_sortie = f"{heure_str}_{item['fichier_nom']}"
+                        dest = os.path.join(base_dir, nom_sortie)
 
-            else:
-                # ═══ Mode local (développement) ═══
-                import shutil
+                        # Supprimer l'ancienne version si existe
+                        for f in os.listdir(base_dir):
+                            if f.endswith(item['fichier_nom']) and f != nom_sortie:
+                                try:
+                                    os.remove(os.path.join(base_dir, f))
+                                except Exception:
+                                    pass
 
-                for date_diffusion in dates_semaine:
-                    jour_semaine = date_diffusion.weekday()
-                    dossier_jour = JOURS_DOSSIERS.get(jour_semaine, '2-TALATA')
+                        shutil.copy2(self.cheminOrdinateur, dest)
+                        chemins_envoyes.append(
+                            f"{dossier_jour}/{nom_sortie}"
+                        )
 
-                    dossier_local = os.path.join(
-                        settings.PAD_LOCAL_PATH,
-                        dossier_jour
-                    )
-                    os.makedirs(dossier_local, exist_ok=True)
+                    # ═══ 2+ diffusions à la même heure → FIFO ═══
+                    else:
+                        sous_dir = os.path.join(base_dir, heure_str)
+                        os.makedirs(sous_dir, exist_ok=True)
 
-                    shutil.copy(
-                        self.cheminOrdinateur,
-                        os.path.join(dossier_local, nom_fichier)
-                    )
+                        for idx, item in enumerate(
+                            items_heure, start=1
+                        ):
+                            # ═══ Ne traiter que CE fichier ═══
+                            if item['fichier_id'] != self.id:
+                                continue
 
-                    chemins_envoyes.append(f"{dossier_jour}/{nom_fichier}")
+                            prefix = f"{idx:02d}_"
+                            nom_sortie = prefix + item['fichier_nom']
+                            dest = os.path.join(sous_dir, nom_sortie)
+
+                            # Supprimer l'ancienne version si existe
+                            for f in os.listdir(sous_dir):
+                                if f.endswith(item['fichier_nom']) and f != nom_sortie:
+                                    try:
+                                        os.remove(os.path.join(sous_dir, f))
+                                    except Exception:
+                                        pass
+
+                            shutil.copy2(self.cheminOrdinateur, dest)
+                            chemins_envoyes.append(
+                                f"{dossier_jour}/{heure_str}/{nom_sortie}"
+                            )
+
             # ═══ Mise à jour ═══
-            from django.utils import timezone as tz
-
             self.cheminPAD = ', '.join(chemins_envoyes)
-            self.dateEnvoiPAD = tz.now()
+            self.dateEnvoiPAD = timezone.now()
 
-            # Si des diffusions restent pour les semaines suivantes
             if dates_futures:
                 self.statut = 'En attente'
             else:
@@ -623,14 +692,27 @@ class FichierAudio(models.Model):
             self.save(update_fields=[
                 'cheminPAD', 'statut', 'dateEnvoiPAD'
             ])
+         # ═══ Mise à jour des Programmations ═══
+            for prog in self.programmations.all():
+                if prog.statut in ('À venir', 'En attente', 'Envoyé au PAD'):
+                    # Herinandro ankehitriny
+                    if debut_semaine <= prog.dateDiffusion <= fin_semaine:
+                        prog.statut = 'Envoyé au PAD'
+                        prog.dateTransfert = timezone.now()
+                        prog.save(update_fields=[
+                            'statut', 'dateTransfert'
+                        ])
+                    # Herinandro manaraka
+                    elif prog.dateDiffusion > fin_semaine:
+                        prog.statut = 'En attente'
+                        prog.save(update_fields=['statut'])
+
         except Exception as e:
             self.statut = 'Échec'
             self.save(update_fields=['statut'])
             raise e
 
         return self.cheminPAD
-
-
 # ============================================================
 # PROGRAMMATION
 # ============================================================
@@ -704,7 +786,9 @@ class Programmation(models.Model):
 class Facture(models.Model):
     commande = models.OneToOneField(
         Commande,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='facture',
         db_column='idCommande'
     )
@@ -731,6 +815,43 @@ class Facture(models.Model):
     dateSuppression = models.DateTimeField(
         blank=True,
         null=True
+    )
+
+    # ═══ NOUVEAU : Données figées (indépendantes du Commande) ═══
+    client_nom = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True
+    )
+    client_telephone = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True
+    )
+    service_nom = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True
+    )
+    tarif_libelle = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True
+    )
+    tarif_prix = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0
+    )
+    dateDebut = models.DateField(blank=True, null=True)
+    dateFin = models.DateField(blank=True, null=True)
+    observation = models.TextField(blank=True, null=True)
+
+    # Lignes de commande figées (JSON)
+    lignes_json = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Lignes de commande en JSON (figées)"
     )
 
     class Meta:

@@ -57,7 +57,8 @@ function Commandes({
 
   // Recherche dynamique
   const [rechercheClient, setRechercheClient] = useState('');
-
+    // ═══ Filtre pour la liste des clients ═══
+  const [filtreListeClient, setFiltreListeClient] = useState('');
   // Client sélectionné
   const [clientSelectionne, setClientSelectionne] = useState(null);
 
@@ -521,6 +522,24 @@ const gererRechercheClient = (event) => {
   }, [clients, rechercheClient]);
 
   // =========================================================
+  // CLIENTS FILTRÉS (recherche dans la liste)
+  // =========================================================
+  const clientsFiltres = useMemo(() => {
+    const texte = filtreListeClient.trim().toLowerCase();
+
+    if (!texte) return clients;
+
+    return clients.filter((client) => {
+      const nomClient = String(client.nom || '').toLowerCase();
+      const telephoneClient = String(client.telephone || '').toLowerCase();
+
+      return (
+        nomClient.includes(texte) ||
+        telephoneClient.includes(texte)
+      );
+    });
+  }, [clients, filtreListeClient]);
+  // =========================================================
   // FERMER LE MENU CLIC DROIT
   // =========================================================
   useEffect(() => {
@@ -758,23 +777,26 @@ const gererRechercheClient = (event) => {
   // =========================================================
   // SÉLECTIONNER DEPUIS LA RECHERCHE
   // =========================================================
-  const selectionnerClientRecherche =
-    (client) => {
-      setClientSelectionne(client);
+  const selectionnerClientRecherche = (client) => {
+    // ═══ Sélectionner le client existant ═══
+    setClientSelectionne(client);
 
-      setNom(
-        client.nom || ''
-      );
+    // ═══ Réinitialiser le formulaire ═══
+    setNom('');
+    setTelephone('');
+    setRechercheClient('');
+    setError('');
 
-      setTelephone(
-        controlerTelephone(
-          client.telephone || ''
-        )
-      );
+    // ═══ Message de confirmation ═══
+    setSuccessMessage(
+      `Client "${client.nom}" sélectionné.`
+    );
 
-      setRechercheClient('');
-      setError('');
-    };
+    // ═══ Retourner à la liste ═══
+    setInterfaceClient('liste');
+
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
 
   // =========================================================
   // FAIRE UNE COMMANDE
@@ -790,34 +812,74 @@ const gererRechercheClient = (event) => {
 
     setEtape(2);
   };
+    // =========================================================
+  // VÉRIFIER SI LE CLIENT A DES DIFFUSIONS NON ARCHIVÉES
+  // =========================================================
+  const verifierDiffusionsClient = async (client) => {
+    const id = client.idClient ?? client.id;
+    if (!id) return null;
+
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(
+        `${API_BASE_URL}/clients/${id}/diffusions-non-archivees/`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      if (!response.ok) return null;
+
+      return await response.json();
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  };
+
 
   // =========================================================
   // MODIFIER CLIENT
   // =========================================================
-  const modifierClient = (
-    client
-  ) => {
+  const modifierClient = async (client) => {
     setMenuContextuel(null);
 
+    // ═══ Vérifier les diffusions non archivées ═══
+    const resultat = await verifierDiffusionsClient(client);
+
+    if (resultat && resultat.nb_diffusions > 0) {
+      const listeDates = resultat.diffusions
+        .map((d) => `• ${d.dateDiffusion} à ${d.heureDiffusion}`)
+        .join('\n');
+
+      setModalNotif({
+        titre: 'Modification impossible',
+        message:
+          `Impossible de modifier le client "${client.nom}".\n\n` +
+          `Ce client a ${resultat.nb_diffusions} diffusion(s) ` +
+          `qui ne sont pas encore archivée(s) :\n\n` +
+          `${listeDates}\n\n` +
+          `Veuillez attendre la fin de toutes les diffusions ` +
+          `avant de modifier ce client.`,
+        avecBoutons: false,
+        onConfirm: null,
+      });
+
+      return;
+    }
+
+    // ═══ Continuer normalement ═══
     setClientAction(client);
-
-    setNom(
-      client.nom || ''
-    );
-
-    setTelephone(
-      controlerTelephone(
-        client.telephone || ''
-      )
-    );
-
+    setNom(client.nom || '');
+    setTelephone(controlerTelephone(client.telephone || ''));
     setRechercheClient('');
     setError('');
     setSuccessMessage('');
 
-    setInterfaceClient(
-      'modifier'
-    );
+    setInterfaceClient('modifier');
   };
 
   // =========================================================
@@ -1001,96 +1063,96 @@ const gererRechercheClient = (event) => {
   // =========================================================
   // SUPPRIMER CLIENT
   // =========================================================
-  const supprimerClient = async (
-    client
-  ) => {
+  const supprimerClient = async (client) => {
     setMenuContextuel(null);
 
-    const id =
-      client.idClient ??
-      client.id;
+    const id = client.idClient ?? client.id;
 
     if (!id) {
-      setError(
-        'Identifiant du client introuvable.'
-      );
+      setError('Identifiant du client introuvable.');
       return;
     }
 
-    const confirmation =
-      window.confirm(
-        `Voulez-vous vraiment supprimer le client "${client.nom}" ?`
-      );
+    // ═══ 1. Vérifier les diffusions non archivées ═══
+    const resultat = await verifierDiffusionsClient(client);
 
-    if (!confirmation) {
+    if (resultat && resultat.nb_diffusions > 0) {
+      const listeDates = resultat.diffusions
+        .map((d) => `• ${d.dateDiffusion} à ${d.heureDiffusion}`)
+        .join('\n');
+
+      setModalNotif({
+        titre: 'Suppression impossible',
+        message:
+          `Impossible de supprimer le client "${client.nom}".\n\n` +
+          `Ce client a ${resultat.nb_diffusions} diffusion(s) ` +
+          `qui ne sont pas encore archivée(s) :\n\n` +
+          `${listeDates}\n\n` +
+          `Veuillez attendre la fin de toutes les diffusions ` +
+          `avant de supprimer ce client.`,
+        avecBoutons: false,
+        onConfirm: null,
+      });
+
       return;
     }
 
-    try {
-      setError('');
-      setSuccessMessage('');
+    // ═══ 2. Confirmation (modal custom) ═══
+    setModalNotif({
+      titre: 'Suppression',
+      message:
+        `Voulez-vous vraiment supprimer le client "${client.nom}" ?\n\n` +
+        `Toutes les diffusions sont terminées.\n` +
+        `Cette action est irréversible.`,
+      avecBoutons: true,
+      onConfirm: async () => {
+        try {
+          setError('');
+          setSuccessMessage('');
 
-      const token =
-        localStorage.getItem(
-          'accessToken'
-        );
+          const token = localStorage.getItem('accessToken');
 
-      const response =
-        await fetch(
-          `${API_BASE_URL}/clients/${id}/`,
-          {
-            method: 'DELETE',
-            headers: {
-              ...(token
-                ? {
-                    Authorization: `Bearer ${token}`,
-                  }
-                : {}),
-            },
+          const response = await fetch(
+            `${API_BASE_URL}/clients/${id}/`,
+            {
+              method: 'DELETE',
+              headers: {
+                ...(token
+                  ? { Authorization: `Bearer ${token}` }
+                  : {}),
+              },
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error('Impossible de supprimer le client.');
           }
-        );
 
-      if (!response.ok) {
-        throw new Error(
-          'Impossible de supprimer le client.'
-        );
-      }
+          setClients((anciensClients) =>
+            anciensClients.filter(
+              (element) =>
+                (element.idClient ?? element.id) !== id
+            )
+          );
 
-      setClients(
-        (anciensClients) =>
-          anciensClients.filter(
-            (element) =>
-              (element.idClient ??
-                element.id) !== id
-          )
-      );
+          if (
+            clientSelectionne &&
+            (clientSelectionne.idClient ?? clientSelectionne.id) === id
+          ) {
+            setClientSelectionne(null);
+          }
 
-      if (
-        clientSelectionne &&
-        (clientSelectionne.idClient ??
-          clientSelectionne.id) ===
-          id
-      ) {
-        setClientSelectionne(
-          null
-        );
-      }
-
-      setSuccessMessage(
-        'Client supprimé avec succès.'
-      );
-
-      setTimeout(() => {
-        setSuccessMessage('');
-      }, 3000);
-    } catch (err) {
-      console.error(err);
-
-      setError(
-        err.message ||
-          'Erreur lors de la suppression du client.'
-      );
-    }
+          setSuccessMessage('Client supprimé avec succès.');
+          setTimeout(() => setSuccessMessage(''), 3000);
+        } catch (err) {
+          console.error(err);
+          setError(
+            err.message ||
+              'Erreur lors de la suppression du client.'
+          );
+        }
+      },
+    });
   };
 
   // =========================================================
@@ -2156,26 +2218,69 @@ const gererRechercheClient = (event) => {
                   </button>
                 </div>
 
+                {/* ═══ RECHERCHE ═══ */}
                 <div
                   style={{
-                    textAlign:
-                      'center',
-                    marginBottom:
-                      '25px',
-                    fontSize:
-                      '20px',
-                    fontWeight:
-                      800,
-                    color:
-                      couleurs.texte,
+                    marginBottom: '20px',
+                    position: 'relative',
                   }}
                 >
-                  {clients.length}{' '}
-                  client
-                  {clients.length >
-                  1
-                    ? 's'
-                    : ''}
+                  <input
+                    type="text"
+                    value={filtreListeClient}
+                    onChange={(e) =>
+                      setFiltreListeClient(e.target.value)
+                    }
+                    placeholder="🔍 Rechercher un client (nom ou téléphone)..."
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      padding: '14px 40px 14px 16px',
+                      border: `1px solid ${couleurs.bordure}`,
+                      borderRadius: '8px',
+                      backgroundColor: darkMode ? '#18181B' : '#FFFFFF',
+                      color: couleurs.texte,
+                      fontSize: '16px',
+                      outline: 'none',
+                    }}
+                  />
+
+                  {filtreListeClient && (
+                    <button
+                      type="button"
+                      onClick={() => setFiltreListeClient('')}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        border: 'none',
+                        background: 'transparent',
+                        color: couleurs.texteSecondaire,
+                        cursor: 'pointer',
+                        fontSize: '20px',
+                        fontWeight: 900,
+                        padding: '5px 10px',
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* ═══ COMPTEUR ═══ */}
+                <div
+                  style={{
+                    textAlign: 'center',
+                    marginBottom: '25px',
+                    fontSize: '20px',
+                    fontWeight: 800,
+                    color: couleurs.texte,
+                  }}
+                >
+                  {filtreListeClient.trim() !== ''
+                    ? `${clientsFiltres.length} / ${clients.length} client${clients.length > 1 ? 's' : ''}`
+                    : `${clients.length} client${clients.length > 1 ? 's' : ''}`}
                 </div>
 
                 {loadingClients ? (
@@ -2194,8 +2299,7 @@ const gererRechercheClient = (event) => {
                     Chargement
                     des clients...
                   </div>
-                ) : clients.length ===
-                  0 ? (
+                ) : clients.length === 0 ? (
                   <div
                     style={{
                       textAlign:
@@ -2211,8 +2315,22 @@ const gererRechercheClient = (event) => {
                         couleurs.texteSecondaire,
                     }}
                   >
-                    Aucun client
-                    enregistré.
+                    {filtreListeClient.trim() !== ''
+                      ? `Aucun client ne correspond à "${filtreListeClient}".`
+                      : 'Aucun client enregistré.'}
+                  </div>
+                ) : clientsFiltres.length === 0 ? (
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      padding: '45px',
+                      border: `1px dashed ${couleurs.bordure}`,
+                      borderRadius: '8px',
+                      fontSize: '16px',
+                      color: couleurs.texteSecondaire,
+                    }}
+                  >
+                    Aucun client ne correspond à "{filtreListeClient}".
                   </div>
                 ) : (
                   <div
@@ -2280,7 +2398,7 @@ const gererRechercheClient = (event) => {
                       </thead>
 
                       <tbody>
-                        {clients.map(
+                        {clientsFiltres.map(
                           (
                             client
                           ) => {
@@ -2503,17 +2621,35 @@ const gererRechercheClient = (event) => {
                 <h2
                   style={{
                     margin: 0,
-                    fontSize:
-                      '30px',
-                    fontWeight:
-                      800,
-                    color:
-                      couleurs.vert,
+                    fontSize: '30px',
+                    fontWeight: 800,
+                    color: couleurs.vert,
                   }}
                 >
-                  Ajouter un
-                  client
+                  Ajouter un client
                 </h2>
+
+                {/* ═══ CROIX ROUGE (×) ═══ */}
+                <button
+                  type="button"
+                  onClick={retournerListe}
+                  style={{
+                    position: 'absolute',
+                    top: '15px',
+                    right: '15px',
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#DC2626',
+                    fontSize: '28px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    padding: '5px 10px',
+                    lineHeight: 1,
+                  }}
+                  title="Fermer"
+                >
+                  ×
+                </button>
               </div>
 
               <div
@@ -5583,6 +5719,8 @@ const gererRechercheClient = (event) => {
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',

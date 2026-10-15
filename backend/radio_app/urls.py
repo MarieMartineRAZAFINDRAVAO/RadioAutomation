@@ -12,6 +12,7 @@ from .views import (
     FichierAudioViewSet,
     ProgrammationViewSet,
     FactureViewSet,
+    PadConfigViewSet,
     pad_config,
     me,
     changer_mot_de_passe
@@ -78,6 +79,11 @@ router.register(
     basename='facture'
 )
 
+router.register(
+    r'pad-configs',
+    PadConfigViewSet,
+    basename='pad-config'
+)
 
 # ==========================================
 # URLS

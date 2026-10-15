@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-
+import ModalPadOriginal from '../../components/ModalPadOriginal';
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 export default function FichiersAudio({
@@ -10,6 +10,9 @@ export default function FichiersAudio({
   const [commande, setCommande] = useState(null);
   const [programmations, setProgrammations] = useState([]);
   const [fichiers, setFichiers] = useState([]);
+  // ═══ Modal PAD Original ═══
+  const [modalPadOpen, setModalPadOpen] = useState(false);
+  const [fichierPourPad, setFichierPourPad] = useState(null);
   const [padMode, setPadMode] = useState(null);
   const [loading, setLoading] = useState(true);
   const [envoiEnCours, setEnvoiEnCours] = useState(null);
@@ -20,9 +23,11 @@ export default function FichiersAudio({
   const [fichierSelectionne, setFichierSelectionne] = useState(null);
   const [nomFichier, setNomFichier] = useState('');
   const [ajoutLoading, setAjoutLoading] = useState(false);
-
-
-
+    // ═══ Modal notification custom ═══
+  const [modalNotif, setModalNotif] = useState(null);
+  
+    // ═══ Lignes masquées (local seulement — pas en BD) ═══
+  const [lignesMasquees, setLignesMasquees] = useState([]);
   const couleurs = {
     fond: darkMode ? '#18181B' : '#F5F8F6',
     carte: darkMode ? '#27272A' : '#FFFFFF',
@@ -134,6 +139,7 @@ export default function FichiersAudio({
       const formData = new FormData();
       formData.append('fichier', fichierSelectionne);
       formData.append('commande', commandeId);
+      formData.append('padMode', 'local');
 
       const response = await fetch(`${API_BASE_URL}/fichiers-audio/upload/`, {
         method: 'POST',
@@ -163,10 +169,167 @@ export default function FichiersAudio({
       setAjoutLoading(false);
     }
   };  
+    // =========================================================
+  // UPLOAD VERS PAD ORIGINAL (ouvre le modal)
   // =========================================================
-  // OUVRIR LE PAD (ouverture directe)
+  const ajouterFichierOriginal = async () => {
+    if (!commandeId) {
+      setError('Veuillez sélectionner une commande.');
+      return;
+    }
+    if (!fichierSelectionne) {
+      setError('Veuillez choisir un fichier MP3.');
+      return;
+    }
+
+    try {
+      setAjoutLoading(true);
+      setError('');
+
+      const token = localStorage.getItem('accessToken');
+      const formData = new FormData();
+      formData.append('fichier', fichierSelectionne);
+      formData.append('commande', commandeId);
+      formData.append('padMode', 'original');
+
+      const response = await fetch(`${API_BASE_URL}/fichiers-audio/upload/`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(
+          errData ? JSON.stringify(errData) : "Erreur lors de l'upload"
+        );
+      }
+
+      const nouveauFichier = await response.json();
+      setFichierSelectionne(null);
+      setNomFichier('');
+      chargerDonnees();
+
+      setFichierPourPad(nouveauFichier);
+      setModalPadOpen(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Impossible d'uploader le fichier.");
+    } finally {
+      setAjoutLoading(false);
+    }
+  };
+    // =========================================================
+  // MASQUER UNE LIGNE (local — tsy mamafa BD)
   // =========================================================
-  const ouvrirPAD = async (fichier) => {
+  const masquerLigne = (progId) => {
+    setLignesMasquees((ancien) => [...ancien, progId]);
+  };
+
+
+    // =========================================================
+  // SUPPRIMER UN FICHIER (Archivé ou Échec)
+  // =========================================================
+  // =========================================================
+  // SUPPRIMER UN FICHIER (Archivé ou Échec) — avec modal
+  // =========================================================
+  const supprimerArchive = (fichier) => {
+    const estEchec = fichier.statut === 'Échec';
+
+    const titre = estEchec
+      ? 'Suppression (fichier en échec)'
+      : 'Suppression';
+
+    const message = estEchec
+      ? `Voulez-vous vraiment supprimer définitivement le fichier en échec ?\n\n` +
+        `Fichier : ${fichier.nomFichier}\n\n` +
+        `Cette action est irréversible.`
+      : `Voulez-vous vraiment supprimer définitivement l'archive ?\n\n` +
+        `Fichier : ${fichier.nomFichier}\n\n` +
+        `L'archive sera supprimée du dossier "archives" et de l'historique.\n` +
+        `Cette action est irréversible.`;
+
+    setModalNotif({
+      titre,
+      message,
+      avecBoutons: true,
+      onConfirm: async () => {
+        try {
+          setError('');
+          const token = localStorage.getItem('accessToken');
+
+          const response = await fetch(
+            `${API_BASE_URL}/fichiers-audio/${fichier.id}/supprimer-archive/`,
+            {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+            }
+          );
+
+          const data = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(
+              data?.error || "Impossible de supprimer le fichier."
+            );
+          }
+
+          setSuccessMessage('✅ Fichier supprimé avec succès.');
+          chargerDonnees();
+          setTimeout(() => setSuccessMessage(''), 3000);
+        } catch (err) {
+          console.error(err);
+          setError(err.message || "Impossible de supprimer le fichier.");
+        }
+      },
+    });
+  };
+
+    // =========================================================
+  // OUVRIR LES ARCHIVES (tsisy fichier spécifique)
+  // =========================================================
+  const ouvrirArchive = async () => {
+    try {
+      setError('');
+      const token = localStorage.getItem('accessToken');
+
+      const response = await fetch(
+        `${API_BASE_URL}/fichiers-audio/ouvrir-archive-dossier/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error || "Impossible d'ouvrir les archives."
+        );
+      }
+
+      setSuccessMessage('✅ Dossier archives ouvert.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Impossible d'ouvrir les archives.");
+    }
+  };
+
+    // =========================================================
+  // OUVRIR LE PAD (avec jour + heure)
+  // =========================================================
+  const ouvrirPAD = async (fichier, prog) => {
     try {
       setError('');
 
@@ -180,7 +343,10 @@ export default function FichiersAudio({
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({
+            dateDiffusion: prog?.dateDiffusion || null,
+            heureDiffusion: prog?.heureDiffusion || null,
+          }),
         }
       );
 
@@ -611,32 +777,67 @@ export default function FichiersAudio({
                   </span>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={ajoutLoading || !fichierSelectionne}
+                <div
                   style={{
                     marginLeft: 'auto',
-                    border: 'none',
-                    backgroundColor: fichierSelectionne ? couleurs.vert : '#9CA3AF',
-                    color: '#FFFFFF',
-                    padding: '12px 24px',
-                    borderRadius: '8px',
-                    cursor:
-                      ajoutLoading || !fichierSelectionne
-                        ? 'not-allowed'
-                        : 'pointer',
-                    fontWeight: 700,
-                    fontSize: '15px',
+                    display: 'flex',
+                    gap: '10px',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  {ajoutLoading ? 'Upload en cours...' : '+ Ajouter'}
-                </button>
+                  {/* BOUTON 1 — PAD LOCAL */}
+                  <button
+                    type="submit"
+                    disabled={ajoutLoading || !fichierSelectionne}
+                    style={{
+                      border: 'none',
+                      backgroundColor: fichierSelectionne
+                        ? couleurs.vert
+                        : '#9CA3AF',
+                      color: '#FFFFFF',
+                      padding: '12px 22px',
+                      borderRadius: '8px',
+                      cursor:
+                        ajoutLoading || !fichierSelectionne
+                          ? 'not-allowed'
+                          : 'pointer',
+                      fontWeight: 700,
+                      fontSize: '15px',
+                    }}
+                  >
+                    {ajoutLoading ? 'Upload...' : '📁 Ajouter au PAD Local'}
+                  </button>
+
+                  {/* BOUTON 2 — PAD ORIGINAL */}
+                  <button
+                    type="button"
+                    disabled={ajoutLoading || !fichierSelectionne}
+                    onClick={ajouterFichierOriginal}
+                    style={{
+                      border: 'none',
+                      backgroundColor: fichierSelectionne
+                        ? '#005C3A'
+                        : '#9CA3AF',
+                      color: '#FFFFFF',
+                      padding: '12px 22px',
+                      borderRadius: '8px',
+                      cursor:
+                        ajoutLoading || !fichierSelectionne
+                          ? 'not-allowed'
+                          : 'pointer',
+                      fontWeight: 700,
+                      fontSize: '15px',
+                    }}
+                  >
+                    📤 Ajouter au PAD Original
+                  </button>
+                </div>
               </div>
             </form>
           </div>
         )}
 
-        {/* CARTE LISTE FICHIERS */}
+        {/* CARTE DIFFUSIONS ET FICHIERS */}
         <div style={cardStyle}>
           <div
             style={{
@@ -655,7 +856,7 @@ export default function FichiersAudio({
                 color: couleurs.vert,
               }}
             >
-              Fichiers audio associés
+              Diffusions et fichiers audio
             </h3>
           </div>
 
@@ -669,7 +870,7 @@ export default function FichiersAudio({
             >
               Chargement...
             </div>
-          ) : fichiers.length === 0 ? (
+          ) : programmations.length === 0 ? (
             <div
               style={{
                 textAlign: 'center',
@@ -679,7 +880,7 @@ export default function FichiersAudio({
                 color: couleurs.texteSecondaire,
               }}
             >
-              Aucun fichier audio pour cette commande.
+              Aucune diffusion prévue pour cette commande.
             </div>
           ) : (
             <div
@@ -693,7 +894,7 @@ export default function FichiersAudio({
                 style={{
                   width: '100%',
                   borderCollapse: 'collapse',
-                  fontSize: '15px',
+                  fontSize: '14px',
                 }}
               >
                 <thead>
@@ -704,84 +905,301 @@ export default function FichiersAudio({
                     }}
                   >
                     <th style={thStyle}>Fichier</th>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Heure</th>
                     <th style={thStyle}>Statut</th>
                     <th style={thStyle}>Chemin PAD</th>
                     <th style={{ ...thStyle, textAlign: 'center' }}>
-                      Voir PAD
+                      Action
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {fichiers.map((f) => (
-                    <tr
-                      key={f.id}
-                      style={{
-                        borderBottom: `1px solid ${couleurs.bordure}`,
-                      }}
-                    >
-                      <td style={{ ...tdStyle, fontWeight: 700 }}>
-                        {f.nomFichier}
-                      </td>
-                      <td style={tdStyle}>
-                        <span
-                          style={{
-                            padding: '5px 12px',
-                            borderRadius: '14px',
-                            fontSize: '13px',
-                            fontWeight: 700,
-                            backgroundColor:
-                              f.statut === 'Transféré'
-                                ? '#DCFCE7'
-                                : '#FEF9C3',
-                            color:
-                              f.statut === 'Transféré'
-                                ? '#15803D'
-                                : '#854D0E',
-                          }}
-                        >
-                          {f.statut}
-                        </span>
-                      </td>
-                      <td
+                  {programmations
+                    .filter((p) => !lignesMasquees.includes(p.id))
+                    .map((p) => {
+                    // ═══ Fallback : chercher par fichierAudio ou prendre le premier ═══
+                    const fichier =
+                      fichiers.find((f) => f.id === p.fichierAudio) ||
+                      fichiers[0];
+
+                    const nomFichier =
+                      p.fichier_nom ||
+                      (fichier ? fichier.nomFichier : '-');
+
+                    const dateStr = formaterDateLocale(p.dateDiffusion);
+                    const heureStr = formaterHeure(p.heureDiffusion);
+                    const statutProg = p.statut || '-';
+
+                                       // ═══ Chemin spécifique à cette diffusion ═══
+                    let cheminDiffusion = '—';
+                    if (fichier && fichier.cheminPAD) {
+                      // Mapping jour semaine → dossier PAD (tous les jours)
+                      const JOURS_PAD = {
+                        1: '1-ALATSINAINY',
+                        2: '2-TALATA',
+                        3: '3-ALAROBIA',
+                        4: '4-ALAKAMISY',
+                        5: '5- ZOMA',
+                        6: '6- SABOTSY',
+                        0: '0- ALAHADY',
+                      };
+
+                      const d = new Date(`${p.dateDiffusion}T00:00:00`);
+                      const jourSemaine = d.getDay();
+                      const prefixJour = JOURS_PAD[jourSemaine] || '';
+
+                      const heureClean = String(p.heureDiffusion || '')
+                        .slice(0, 5)
+                        .replace(':', 'h');
+
+                      const chemins = fichier.cheminPAD
+                        .split(',')
+                        .map((c) => c.trim());
+
+                        // 1. Jour + sous-dossier ora (ex: 06h30/01_...)
+                      let match = chemins.find(
+                        (c) =>
+                          prefixJour &&
+                          c.includes(prefixJour) &&
+                          (c.includes(`/${heureClean}/`) ||
+                           c.includes(`\\${heureClean}\\`))
+                      );
+
+                      // 2. Jour + préfixe heure (ex: 12h25_...)
+                      if (!match && prefixJour) {
+                        match = chemins.find(
+                          (c) =>
+                            c.includes(prefixJour) &&
+                            (c.includes(`/${heureClean}_`) ||
+                             c.includes(`\\${heureClean}_`))
+                        );
+                      }
+
+                      // 3. Jour ihany
+                      if (!match && prefixJour) {
+                        match = chemins.find((c) => c.includes(prefixJour));
+                      }
+
+                      // 4. Préfixe heure ihany
+                      if (!match) {
+                        match = chemins.find(
+                          (c) =>
+                            c.includes(`/${heureClean}/`) ||
+                            c.includes(`/${heureClean}_`) ||
+                            c.includes(`\\${heureClean}\\`) ||
+                            c.includes(`\\${heureClean}_`)
+                        );
+                      }
+
+                      cheminDiffusion = match || chemins[0] || '—';
+                
+                    }
+                    // ═══ Couleur du statut ═══
+                    let bgStatut = '#FEF9C3';
+                    let colStatut = '#854D0E';
+                    if (statutProg === 'Archivé') {
+                      bgStatut = '#DCFCE7';
+                      colStatut = '#15803D';
+                    } else if (
+                      statutProg === 'Transféré' ||
+                      statutProg === 'Envoyé au PAD'
+                    ) {
+                      bgStatut = '#DBEAFE';
+                      colStatut = '#1E40AF';
+                    } else if (statutProg === 'À venir') {
+                      bgStatut = '#E0E7FF';
+                      colStatut = '#3730A3';
+                    } else if (statutProg === 'Échec') {
+                      bgStatut = '#FEE2E2';
+                      colStatut = '#DC2626';
+                    } else if (statutProg === 'En attente') {
+                      bgStatut = '#F1F5F9';
+                      colStatut = '#64748B';
+                    }
+
+                    return (
+                      <tr
+                        key={p.id}
                         style={{
-                          ...tdStyle,
-                          color: couleurs.texteSecondaire,
+                          borderBottom: `1px solid ${couleurs.bordure}`,
                         }}
                       >
-                        {f.cheminPAD || '—'}
-                      </td>
-                      {/* ═══ BOUTON VOIR PAD ═══ */}
-                      <td
-                        style={{
-                          ...tdStyle,
-                          textAlign: 'center',
-                        }}
-                      >                   
-                       {f.cheminPAD ? (
-                          <button
-                            type="button"
-                            onClick={() => ouvrirPAD(f)}
+                        <td
+                          style={{
+                            ...tdStyle,
+                            fontWeight: 700,
+                            maxWidth: '250px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={nomFichier}
+                        >
+                          {nomFichier}
+                        </td>
+
+                        <td style={tdStyle}>{dateStr}</td>
+
+                        <td style={{ ...tdStyle, fontWeight: 700 }}>
+                          {heureStr}
+                        </td>
+
+                        <td style={tdStyle}>
+                          <span
                             style={{
-                              border: 'none',
-                              backgroundColor: '#3B82F6',
-                              color: '#FFFFFF',
-                              padding: '9px 18px',
-                              borderRadius: '7px',
-                              cursor: 'pointer',
+                              padding: '4px 10px',
+                              borderRadius: '12px',
+                              fontSize: '12px',
                               fontWeight: 700,
-                              fontSize: '14px',
+                              backgroundColor: bgStatut,
+                              color: colStatut,
                             }}
                           >
-                            📂 Voir PAD
-                          </button>
-                        ) : (
-                          <span style={{ color: couleurs.texteSecondaire }}>
-                            —
+                            {statutProg}
                           </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+
+                        <td
+                          style={{
+                            ...tdStyle,
+                            color: couleurs.texteSecondaire,
+                            fontSize: '12px',
+                            maxWidth: '250px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={cheminDiffusion}
+                        >
+                          {cheminDiffusion}
+                        </td>
+
+                        <td
+                          style={{
+                            ...tdStyle,
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '6px',
+                              justifyContent: 'center',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                             {/* ═══ À VENIR / TRANSFÉRÉ / ENVOYÉ AU PAD → Voir PAD ═══ */}
+                            {(statutProg === 'À venir' ||
+                              statutProg === 'Transféré' ||
+                              statutProg === 'Envoyé au PAD') && (
+                              <button
+                                type="button"
+                                onClick={() => ouvrirPAD(fichier || {}, p)}
+                                style={{
+                                  border: 'none',
+                                  backgroundColor: '#3B82F6',
+                                  color: '#FFFFFF',
+                                  padding: '7px 14px',
+                                  borderRadius: '7px',
+                                  cursor: 'pointer',
+                                  fontWeight: 700,
+                                  fontSize: '12px',
+                                }}
+                              >
+                                📂 Voir PAD
+                              </button>
+                            )}
+
+                            {/* ═══ ARCHIVÉ → Voir Archive + Masquer ═══ */}
+                            {statutProg === 'Archivé' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => ouvrirArchive(fichier)}
+                                  style={{
+                                    border: 'none',
+                                    backgroundColor: '#10B981',
+                                    color: '#FFFFFF',
+                                    padding: '7px 14px',
+                                    borderRadius: '7px',
+                                    cursor: 'pointer',
+                                    fontWeight: 700,
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  📦 Voir Archive
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => masquerLigne(p.id)}
+                                  style={{
+                                    border: 'none',
+                                    backgroundColor: '#FEE2E2',
+                                    color: '#DC2626',
+                                    padding: '7px 14px',
+                                    borderRadius: '7px',
+                                    cursor: 'pointer',
+                                    fontWeight: 700,
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  🗑 Masquer
+                                </button>
+                              </>
+                            )}
+
+                            {/* ═══ ÉCHEC → Masquer ═══ */}
+                            {statutProg === 'Échec' && (
+                              <button
+                                type="button"
+                                onClick={() => masquerLigne(p.id)}
+                                style={{
+                                  border: 'none',
+                                  backgroundColor: '#FEE2E2',
+                                  color: '#DC2626',
+                                  padding: '7px 14px',
+                                  borderRadius: '7px',
+                                  cursor: 'pointer',
+                                  fontWeight: 700,
+                                  fontSize: '12px',
+                                }}
+                              >
+                                🗑 Masquer
+                              </button>
+                            )}
+
+                            {/* ═══ EN ATTENTE → texte discret ═══ */}
+                            {statutProg === 'En attente' && (
+                              <span
+                                style={{
+                                  color: couleurs.texteSecondaire,
+                                  fontSize: '12px',
+                                  fontStyle: 'italic',
+                                  padding: '4px 8px',
+                                }}
+                              >
+                                ⏳ En attente
+                              </span>
+                            )}
+
+                            {/* ═══ DISPONIBLE → rien ═══ */}
+                            {statutProg === 'Disponible' && (
+                              <span
+                                style={{
+                                  color: couleurs.texteSecondaire,
+                                  fontSize: '12px',
+                                  fontStyle: 'italic',
+                                }}
+                              >
+                                —
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -809,6 +1227,149 @@ export default function FichiersAudio({
         )}
 
       </div>
+
+      {/* ═══ MODAL PAD ORIGINAL ═══ */}
+      <ModalPadOriginal
+        isOpen={modalPadOpen}
+        onClose={() => {
+          setModalPadOpen(false);
+          setFichierPourPad(null);
+        }}
+        fichierAudio={fichierPourPad}
+        darkMode={darkMode}
+      />
+
+      {/* ═══ MODAL NOTIFICATION / CONFIRMATION ═══ */}
+      {modalNotif && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 99999,
+          }}
+          onClick={() => setModalNotif(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: darkMode ? '#27272A' : '#FFFFFF',
+              borderRadius: '18px',
+              padding: '35px 40px',
+              width: '520px',
+              maxWidth: '95%',
+              textAlign: 'center',
+              boxShadow: '0 25px 70px rgba(0,0,0,0.30)',
+              color: couleurs.texte,
+            }}
+          >
+            <h2
+              style={{
+                margin: '0 0 18px',
+                fontSize: '26px',
+                fontWeight: 800,
+                color: couleurs.texte,
+              }}
+            >
+              {modalNotif.titre}
+            </h2>
+
+            <p
+              style={{
+                margin: '0 0 30px',
+                fontSize: '16px',
+                color: couleurs.texteSecondaire,
+                lineHeight: 1.6,
+                whiteSpace: 'pre-line',
+                textAlign: 'left',
+              }}
+            >
+              {modalNotif.message}
+            </p>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '15px',
+                justifyContent: 'center',
+              }}
+            >
+              {!modalNotif.avecBoutons && (
+                <button
+                  type="button"
+                  onClick={() => setModalNotif(null)}
+                  style={{
+                    padding: '12px 40px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#EF4444',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: '16px',
+                    cursor: 'pointer',
+                    minWidth: '120px',
+                  }}
+                >
+                  OK
+                </button>
+              )}
+
+              {modalNotif.avecBoutons && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cb = modalNotif.onConfirm;
+                      setModalNotif(null);
+                      if (cb) cb();
+                    }}
+                    style={{
+                      padding: '12px 40px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#EF4444',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      minWidth: '120px',
+                    }}
+                  >
+                    Oui
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalNotif(null)}
+                    style={{
+                      padding: '12px 40px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#94A3B8',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      minWidth: '120px',
+                    }}
+                  >
+                    Non
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

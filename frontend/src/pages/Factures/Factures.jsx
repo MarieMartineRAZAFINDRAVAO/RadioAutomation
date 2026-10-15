@@ -12,6 +12,9 @@ export default function Factures({ darkMode = false, onPrecedent }) {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
 
+  // ═══ Modal notification custom ═══
+  const [modalNotif, setModalNotif] = useState(null);
+
   const couleurs = {
     fond: darkMode ? '#18181B' : '#F5F8F6',
     carte: darkMode ? '#27272A' : '#FFFFFF',
@@ -110,53 +113,110 @@ export default function Factures({ darkMode = false, onPrecedent }) {
   // =========================================================
   // ACTIONS
   // =========================================================
-  const archiverFacture = async (id) => {
-    if (!window.confirm('Archiver cette facture ?')) return;
-    try {
-      const token = localStorage.getItem('accessToken');
-      await fetch(`${API_BASE_URL}/factures/${id}/archiver/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      charger();
-    } catch (err) {
-      alert('Erreur');
-    }
+  const archiverFacture = (id) => {
+    setModalNotif({
+      titre: 'Archiver cette facture ?',
+      message:
+        "La facture sera déplacée dans l'onglet \"Archive\".\n\n" +
+        "Elle restera consultable mais ne sera plus dans les factures actives.",
+      avecBoutons: true,
+      onConfirm: async () => {
+        try {
+          const token = localStorage.getItem('accessToken');
+          await fetch(`${API_BASE_URL}/factures/${id}/archiver/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+          charger();
+        } catch (err) {
+          console.error(err);
+          setModalNotif({
+            titre: 'Erreur',
+            message: "Impossible d'archiver la facture.",
+            avecBoutons: false,
+          });
+        }
+      },
+    });
+  };
+    const desarchiverFacture = (id) => {
+    setModalNotif({
+      titre: 'Désarchiver cette facture ?',
+      message:
+        "La facture sera restaurée dans la liste des factures actives.\n\n" +
+        "Elle sera de nouveau visible dans \"Factures actives\".",
+      avecBoutons: true,
+      onConfirm: async () => {
+        try {
+          const token = localStorage.getItem('accessToken');
+          const response = await fetch(
+            `${API_BASE_URL}/factures/${id}/restaurer/`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error('Erreur lors de la restauration');
+          }
+
+          // Recharger les listes
+          charger();
+        } catch (err) {
+          console.error(err);
+          setModalNotif({
+            titre: 'Erreur',
+            message: 'Impossible de désarchiver la facture.',
+            avecBoutons: false,
+          });
+        }
+      },
+    });
   };
 
-  const supprimerDefinitivement = async (id) => {
-    if (
-      !window.confirm(
-        '⚠️ Supprimer DÉFINITIVEMENT cette facture ? Cette action est irréversible.'
-      )
-    )
-      return;
 
-    try {
-      const token = localStorage.getItem('accessToken');
-      const response = await fetch(`${API_BASE_URL}/factures/${id}/`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
+  const supprimerDefinitivement = (id) => {
+    setModalNotif({
+      titre: 'Suppression définitive',
+      message:
+        '⚠️ Voulez-vous vraiment supprimer DÉFINITIVEMENT cette facture ?\n\n' +
+        'Cette action est irréversible.',
+      avecBoutons: true,
+      onConfirm: async () => {
+        try {
+          const token = localStorage.getItem('accessToken');
+          const response = await fetch(`${API_BASE_URL}/factures/${id}/`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
 
-      if (!response.ok) {
-        throw new Error('Erreur lors de la suppression');
-      }
+          if (!response.ok) {
+            throw new Error('Erreur lors de la suppression');
+          }
 
-      // Retirer de la liste locale
-      setFacturesArchivees((anciennes) =>
-        anciennes.filter((f) => f.id !== id)
-      );
-    } catch (err) {
-      console.error(err);
-      alert('Impossible de supprimer définitivement la facture.');
-    }
+          setFacturesArchivees((anciennes) =>
+            anciennes.filter((f) => f.id !== id)
+          );
+        } catch (err) {
+          console.error(err);
+          setModalNotif({
+            titre: 'Erreur',
+            message: 'Impossible de supprimer définitivement la facture.',
+            avecBoutons: false,
+          });
+        }
+      },
+    });
   };
 
   // =========================================================
@@ -448,10 +508,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
     window.open(url, '_blank');
   };
 
-  const exporterExcel = () => {
-    const url = `${API_BASE_URL}/factures/export-excel/${construireQuery()}`;
-    window.open(url, '_blank');
-  };
+
 
   const formatMontant = (n) => Number(n || 0).toLocaleString('fr-FR');
 
@@ -625,21 +682,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
             >
               Exporter PDF
             </button>
-            <button
-              onClick={exporterExcel}
-              style={{
-                padding: '11px 20px',
-                borderRadius: '9px',
-                border: 'none',
-                background: couleurs.vert,
-                color: '#FFF',
-                fontWeight: 700,
-                cursor: 'pointer',
-                fontSize: '15px',
-              }}
-            >
-              Exporter Excel
-            </button>
+
           </div>
         </div>
 
@@ -688,6 +731,7 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                   <th style={thStyle}>Date</th>
                   <th style={thStyle}>Service</th>
                   <th style={thStyle}>Tarif</th>
+                  <th style={thStyle}>Nbr</th>
                   <th style={thStyle}>Montant</th>
                   <th style={thStyle}>Statut</th>
                   {vue === 'archive' ? (
@@ -720,6 +764,14 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                     <td style={tdStyle}>
                       {Number(f.tarif_prix || 0).toLocaleString('fr-FR')} Ar
                     </td>
+                    <td style={tdStyle}>
+                      {Array.isArray(f.lignes) && f.lignes.length > 0
+                        ? f.lignes.reduce(
+                            (s, l) => s + Number(l.nbr || 0),
+                            0
+                          )
+                        : '-'}
+                    </td>
                     <td style={tdStyle}>{formatMontant(f.montantTotal)} Ar</td>
                     <td style={tdStyle}>
                       <span
@@ -745,12 +797,27 @@ export default function Factures({ darkMode = false, onPrecedent }) {
                             : '-'}
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          <button
-                            onClick={() => supprimerDefinitivement(f.id)}
-                            style={actionButtonDanger()}
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              gap: '10px',
+                              flexWrap: 'wrap',
+                              justifyContent: 'center',
+                            }}
                           >
-                            🗑 Supprimer définitivement
-                          </button>
+                            <button
+                              onClick={() => desarchiverFacture(f.id)}
+                              style={actionButtonSuccess()}
+                            >
+                              ♻️ Désarchiver
+                            </button>
+                            <button
+                              onClick={() => supprimerDefinitivement(f.id)}
+                              style={actionButtonDanger()}
+                            >
+                              🗑 Supprimer définitivement
+                            </button>
+                          </div>
                         </td>
                       </>
                     ) : (
@@ -880,6 +947,138 @@ export default function Factures({ darkMode = false, onPrecedent }) {
           </div>
         )}
       </div>
+
+      {/* ═══ MODAL NOTIFICATION / CONFIRMATION ═══ */}
+      {modalNotif && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 99999,
+          }}
+          onClick={() => setModalNotif(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: couleurs.carte,
+              borderRadius: '18px',
+              padding: '35px 40px',
+              width: '520px',
+              maxWidth: '95%',
+              textAlign: 'center',
+              boxShadow: '0 25px 70px rgba(0,0,0,0.30)',
+              color: couleurs.texte,
+            }}
+          >
+            <h2
+              style={{
+                margin: '0 0 18px',
+                fontSize: '26px',
+                fontWeight: 800,
+                color: couleurs.texte,
+              }}
+            >
+              {modalNotif.titre}
+            </h2>
+
+            <p
+              style={{
+                margin: '0 0 30px',
+                fontSize: '16px',
+                color: couleurs.texteSecondaire,
+                lineHeight: 1.6,
+                whiteSpace: 'pre-line',
+                textAlign: 'left',
+              }}
+            >
+              {modalNotif.message}
+            </p>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '15px',
+                justifyContent: 'center',
+              }}
+            >
+              {!modalNotif.avecBoutons && (
+                <button
+                  type="button"
+                  onClick={() => setModalNotif(null)}
+                  style={{
+                    padding: '12px 40px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: couleurs.vert,
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: '16px',
+                    cursor: 'pointer',
+                    minWidth: '120px',
+                  }}
+                >
+                  OK
+                </button>
+              )}
+
+              {modalNotif.avecBoutons && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cb = modalNotif.onConfirm;
+                      setModalNotif(null);
+                      if (cb) cb();
+                    }}
+                    style={{
+                      padding: '12px 40px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#EF4444',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      minWidth: '120px',
+                    }}
+                  >
+                    Oui
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setModalNotif(null)}
+                    style={{
+                      padding: '12px 40px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#94A3B8',
+                      color: '#FFFFFF',
+                      fontWeight: 700,
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      minWidth: '120px',
+                    }}
+                  >
+                    Non
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -917,6 +1116,18 @@ const actionButtonDanger = () => ({
   border: 'none',
   background: '#FEE2E2',
   color: '#DC2626',
+  fontWeight: 700,
+  fontSize: '14px',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+});
+
+const actionButtonSuccess = () => ({
+  padding: '9px 20px',
+  borderRadius: '8px',
+  border: 'none',
+  background: '#DCFCE7',
+  color: '#15803D',
   fontWeight: 700,
   fontSize: '14px',
   cursor: 'pointer',

@@ -2,6 +2,7 @@
 Commande Django : envoie et nettoie le PAD
 - Envoie les fichiers 'En attente' (nouvelle semaine)
 - Archive les diffusions passées
+- Nettoie les fichiers orphelins du PAD
 
 Usage : python manage.py nettoyer_pad
 """
@@ -53,3 +54,14 @@ class Command(BaseCommand):
                         f"  - {err['fichier']} : {err['erreur']}"
                     )
                 )
+
+        # ═══ 3. Nettoyage : fichiers orphelins ao amin'ny PAD ═══
+        nettoyage = resultats.get('nettoyage', {})
+        nb_orphelins = len(nettoyage.get('supprimes', []))
+
+        if nb_orphelins > 0:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"[PAD] {nb_orphelins} fichier(s) orphelin(s) nettoyé(s)."
+                )
+            )

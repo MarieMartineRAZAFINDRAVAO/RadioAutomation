@@ -15,13 +15,15 @@ from rest_framework.views import APIView
 from .models import (
     Utilisateur, Client, Service, Tarif,
     Commande, LigneCommande, Document,
-    FichierAudio, Programmation, Facture
+    FichierAudio, Programmation, Facture,
+    PadConfig
 )
 
 from .serializers import (
     UtilisateurSerializer, ClientSerializer, ServiceSerializer, TarifSerializer,
     CommandeSerializer, LigneCommandeSerializer, DocumentSerializer,
-    FichierAudioSerializer, ProgrammationSerializer, FactureSerializer
+    FichierAudioSerializer, ProgrammationSerializer, FactureSerializer,
+    PadConfigSerializer
 )
 
 
@@ -122,6 +124,52 @@ class ClientViewSet(viewsets.ModelViewSet):
     def recherche(self, request):
         return rechercher_clients(request)
 
+    # ═══════════════════════════════════════════════════════════
+    # VÉRIFIER LES DIFFUSIONS NON ARCHIVÉES D'UN CLIENT
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=True, methods=['get'], url_path='diffusions-non-archivees')
+    def diffusions_non_archivees(self, request, pk=None):
+        """
+        Retourne la liste des Programmation non archivées
+        pour les commandes de ce client.
+        """
+        client = self.get_object()
+
+        programmations = Programmation.objects.filter(
+            commande__client=client
+        ).exclude(
+            statut='Archivé'
+        ).select_related('commande').order_by(
+            'dateDiffusion', 'heureDiffusion'
+        )
+
+        resultats = []
+
+        for prog in programmations:
+            resultats.append({
+                'id': prog.id,
+                'commande_id': prog.commande.id if prog.commande else None,
+                'dateDiffusion': (
+                    prog.dateDiffusion.strftime('%d/%m/%Y')
+                    if prog.dateDiffusion else '-'
+                ),
+                'heureDiffusion': (
+                    prog.heureDiffusion.strftime('%H:%M')
+                    if prog.heureDiffusion else '-'
+                ),
+                'statut': prog.statut,
+            })
+
+        return Response(
+            {
+                'client_id': client.id,
+                'client_nom': client.nom,
+                'nb_diffusions': len(resultats),
+                'diffusions': resultats,
+            },
+            status=status.HTTP_200_OK
+        )
+
 
 class ServiceViewSet(viewsets.ModelViewSet):
     queryset = Service.objects.all()
@@ -196,6 +244,9 @@ class CommandeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='generer-facture')
     def generer_facture(self, request, pk=None):
+        import json
+        from collections import defaultdict
+
         commande = self.get_object()
 
         if hasattr(commande, 'facture'):
@@ -206,11 +257,62 @@ class CommandeViewSet(viewsets.ModelViewSet):
 
         numero = f"FAC-{commande.id:04d}"
 
+        # ═══ Récupérer les données du client ═══
+        client = commande.client
+
+        # ═══ Première ligne (service + tarif) ═══
+        premiere_ligne = commande.lignes.first()
+
+        service_nom = ''
+        tarif_libelle = ''
+        tarif_prix = 0
+
+        if premiere_ligne:
+            if premiere_ligne.service:
+                service_nom = premiere_ligne.service.nomService
+            if premiere_ligne.tarif:
+                tarif_libelle = premiere_ligne.tarif.libelle
+            tarif_prix = premiere_ligne.prixUnitaire
+
+        # ═══ Grouper les lignes par service + tarif ═══
+        groupes = defaultdict(lambda: {
+            'nbr': 0,
+            'service_nom': '',
+            'tarif_libelle': '',
+            'prixUnitaire': 0,
+            'montant': 0,
+        })
+
+        for ligne in commande.lignes.all():
+            cle = f"{ligne.service_id}-{ligne.tarif_id}"
+            g = groupes[cle]
+            g['nbr'] += 1
+            g['montant'] += float(ligne.montant)
+            if ligne.service:
+                g['service_nom'] = ligne.service.nomService
+            if ligne.tarif:
+                g['tarif_libelle'] = ligne.tarif.libelle
+            g['prixUnitaire'] = float(ligne.prixUnitaire)
+
+        lignes_json = json.dumps(list(groupes.values()))
+
+        # ═══ Créer la Facture avec données figées ═══
         facture = Facture.objects.create(
             commande=commande,
             numeroFacture=numero,
             montantTotal=commande.montantTotal,
-            statut='Générée'
+            statut='Générée',
+
+            # Données figées
+            client_nom=client.nom if client else '',
+            client_telephone=client.telephone if client else '',
+            service_nom=service_nom,
+            tarif_libelle=tarif_libelle,
+            tarif_prix=tarif_prix,
+            dateDebut=commande.dateDebut,
+            dateFin=commande.dateFin,
+            observation=commande.observation,
+            lignes_json=lignes_json,
         )
 
         return Response(
@@ -231,6 +333,104 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
 
+
+# ==========================================
+# PAD CONFIG — VIEWSET
+# ==========================================
+class PadConfigViewSet(viewsets.ModelViewSet):
+    queryset = PadConfig.objects.all()
+    serializer_class = PadConfigSerializer
+    permission_classes = [AllowAny]
+
+    @action(detail=True, methods=['post'], url_path='tester')
+    def tester(self, request, pk=None):
+        """
+        Teste la connexion au réseau PAD (SMB).
+        Accepte optionnellement nomUtilisateur et motDePasse
+        dans le body (pour l'étape 2 du modal).
+        """
+        config = self.get_object()
+
+        if not config.nomReseau or not config.dossier:
+            return Response(
+                {'error': 'Nom réseau ou dossier manquant.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ═══ Récupérer user/password (body) ═══
+        nom_utilisateur = request.data.get('nomUtilisateur', '').strip()
+        mot_de_passe = request.data.get('motDePasse', '').strip()
+
+        if not nom_utilisateur or not mot_de_passe:
+            return Response(
+                {'error': "Veuillez remplir tous les champs."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ═══ Vérifier si les identifiants correspondent au réseau ═══
+        if (
+            nom_utilisateur != config.nomUtilisateur or
+            mot_de_passe != config.motDePasse
+        ):
+            return Response(
+                {
+                    'success': False,
+                    'error': (
+                        f"❌ Identifiants incorrects pour le réseau "
+                        f"'{config.nomReseau}'. "
+                        f"Veuillez vérifier votre nom d'utilisateur "
+                        f"et votre mot de passe."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            import smbclient
+
+            # Nettoyer les sessions précédentes
+            try:
+                smbclient.reset_connection_cache()
+            except Exception:
+                pass
+
+            smbclient.register_session(
+                config.nomReseau,
+                username=nom_utilisateur,
+                password=mot_de_passe,
+            )
+
+            chemin = f"\\\\{config.nomReseau}\\{config.dossier}"
+            smbclient.listdir(chemin)
+
+            return Response(
+                {
+                    'success': True,
+                    'message': 'Connexion réussie.',
+                    'chemin': chemin,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except ImportError:
+            return Response(
+                {
+                    'error': "Le module 'smbprotocol' n'est pas installé. "
+                             "Lancez : pip install smbprotocol"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': f'Échec de connexion : {str(e)}'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+            
 # ==========================================
 # FICHIER AUDIO — VIEWSET AVEC ACTIONS
 # ==========================================
@@ -380,11 +580,30 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
                 prog.fichierAudio = fichier_audio
                 prog.save(update_fields=['fichierAudio'])
 
-        # ═══ AUTO-COPIE VERS LE PAD ═══
-        try:
-            fichier_audio.envoyerVersPAD()
-        except Exception as e:
-            print(f"[PAD] Erreur envoi auto : {e}")
+        # ═══ Récupérer padMode (multipart → request.POST) ═══
+        pad_mode = (
+            request.POST.get('padMode')
+            or request.data.get('padMode')
+            or 'local'
+        )
+
+        print(f"[PAD] padMode reçu = '{pad_mode}'")
+
+               # ═══ ENVOI VERS LE PAD LOCAL (uniquement si padMode = 'local') ═══
+        if pad_mode == 'local':
+            try:
+                fichier_audio.padMode = 'local'
+                fichier_audio.save(update_fields=['padMode'])
+                fichier_audio.envoyerVersPAD()  # ← force=True
+                print(f"[PAD] Envoi Local OK : {fichier_audio.statut}")
+            except Exception as e:
+                print(f"[PAD] Erreur envoi auto : {e}")
+        else:
+            # PAD Original — on ne copie PAS vers le PAD Local
+            fichier_audio.padMode = 'original'
+            fichier_audio.statut = 'En attente'
+            fichier_audio.save(update_fields=['padMode', 'statut'])
+            print(f"[PAD] Mode Original — en attente du modal")
 
         serializer = FichierAudioSerializer(fichier_audio)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -463,14 +682,214 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
                     })
 
         return Response(resultats, status=status.HTTP_200_OK)
+        
         # ═══════════════════════════════════════════════════════════
-    # OUVRIR LE PAD (ouverture directe du dossier local)
+    # SUPPRIMER UNE ARCHIVE (ou fichier en Échec)
     # ═══════════════════════════════════════════════════════════
-    @action(detail=True, methods=['get', 'post'], url_path='ouvrir-pad')
-    def ouvrir_pad(self, request, pk=None):
+    @action(detail=True, methods=['delete'], url_path='supprimer-archive')
+    def supprimer_archive(self, request, pk=None):
         """
-        Ouvre directement le dossier PAD local dans l'Explorateur Windows.
-        Aucun fichier .bat, aucun téléchargement, aucune credentials.
+        Supprime définitivement un fichier (Archivé ou Échec) :
+        - Le fichier dans archives/ (si Archivé)
+        - La ligne dans le CSV (si Archivé)
+        - Le Excel (si Archivé)
+        - Le FichierAudio en BD
+        """
+        import os
+        import csv
+        from django.conf import settings
+        from .pad_service import (
+            DOSSIER_ARCHIVES,
+            FICHIER_HISTORIQUE,
+            FICHIER_EXCEL,
+            exporter_historique_excel,
+        )
+
+        fichier = self.get_object()
+
+        # ═══ Vérifier le statut ═══
+        if fichier.statut not in ('Archivé', 'Échec'):
+            return Response(
+                {
+                    'error': (
+                        "Ce fichier ne peut pas être supprimé "
+                        "(statut : %s)." % fichier.statut
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        nom_fichier = fichier.nomFichier
+        dossier_archives = os.path.join(
+            settings.PAD_LOCAL_PATH,
+            DOSSIER_ARCHIVES
+        )
+
+        # ═══ 1. Supprimer le fichier physique dans archives/ ═══
+        if fichier.statut == 'Archivé' and os.path.isdir(dossier_archives):
+            for nom in os.listdir(dossier_archives):
+                if nom in (FICHIER_HISTORIQUE, FICHIER_EXCEL):
+                    continue
+
+                chemin = os.path.join(dossier_archives, nom)
+                if not os.path.isfile(chemin):
+                    continue
+
+                if nom_fichier and nom_fichier in nom:
+                    try:
+                        os.remove(chemin)
+                        print(f"[PAD] Archive supprimée : {nom}")
+                    except Exception as e:
+                        print(f"[PAD] Erreur suppression {nom} : {e}")
+
+        # ═══ 2. Régénérer le CSV sans les lignes ═══
+        if fichier.statut == 'Archivé':
+            chemin_csv = os.path.join(
+                dossier_archives, FICHIER_HISTORIQUE
+            )
+
+            if os.path.exists(chemin_csv):
+                lignes_gardees = []
+                try:
+                    with open(
+                        chemin_csv, mode='r', encoding='utf-8-sig'
+                    ) as f:
+                        reader = csv.reader(f, delimiter=';')
+                        for ligne in reader:
+                            if (
+                                len(ligne) >= 7
+                                and ligne[6] == nom_fichier
+                            ):
+                                continue
+                            lignes_gardees.append(ligne)
+
+                    with open(
+                        chemin_csv, mode='w', newline='',
+                        encoding='utf-8-sig'
+                    ) as f:
+                        writer = csv.writer(f, delimiter=';')
+                        writer.writerows(lignes_gardees)
+
+                    exporter_historique_excel()
+                except Exception as e:
+                    print(f"[PAD] Erreur CSV : {e}")
+
+             # ═══ 2bis. Si Échec → supprimer le fichier du PAD ═══
+        if fichier.statut == 'Échec':
+            # Le cheminPAD contient un ou plusieurs chemins
+            # séparés par ', ' ex: "5- ZOMA/05h20/f.m4a, 5- ZOMA/12h30/f.m4a"
+            chemins = []
+            if fichier.cheminPAD:
+                chemins = [
+                    c.strip()
+                    for c in fichier.cheminPAD.split(',')
+                    if c.strip()
+                ]
+
+            for chemin_relatif in chemins:
+                # Convertir "5- ZOMA/05h20/f.m4a" → chemin Windows
+                chemin_complet = os.path.join(
+                    settings.PAD_LOCAL_PATH,
+                    *chemin_relatif.replace('\\', '/').split('/')
+                )
+
+                if os.path.exists(chemin_complet):
+                    try:
+                        os.remove(chemin_complet)
+                        print(f"[PAD] Échec supprimé du PAD : {chemin_relatif}")
+                    except Exception as e:
+                        print(f"[PAD] Erreur suppression {chemin_relatif} : {e}")
+
+                # ═══ Supprimer le sous-dossier s'il est vide ═══
+                dossier_parent = os.path.dirname(chemin_complet)
+                try:
+                    if (
+                        os.path.isdir(dossier_parent)
+                        and not os.listdir(dossier_parent)
+                    ):
+                        os.rmdir(dossier_parent)
+                        print(f"[PAD] Sous-dossier supprimé : {dossier_parent}")
+                except Exception as e:
+                    print(f"[PAD] Erreur suppression sous-dossier : {e}")
+
+        # ═══ 3. Supprimer le fichier média physique ═══
+        # ═══ 3. Supprimer le fichier média physique ═══
+        try:
+            if (
+                fichier.cheminOrdinateur
+                and os.path.exists(fichier.cheminOrdinateur)
+            ):
+                os.remove(fichier.cheminOrdinateur)
+                print(f"[PAD] Média supprimé : {fichier.cheminOrdinateur}")
+        except Exception as e:
+            print(f"[PAD] Erreur suppression média : {e}")
+
+        # ═══ 4. Supprimer en BD ═══
+        fichier_id = fichier.id
+        fichier.delete()
+
+        return Response(
+            {
+                'success': True,
+                'message': 'Fichier supprimé avec succès.',
+                'id': fichier_id,
+            },
+            status=status.HTTP_200_OK
+        )  
+        # ═══════════════════════════════════════════════════════════
+    # OUVRIR LE DOSSIER ARCHIVES (sans fichier spécifique)
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=False, methods=['get', 'post'], url_path='ouvrir-archive-dossier')
+    def ouvrir_archive_dossier(self, request):
+        """
+        Ouvre le dossier archives/ dans l'Explorateur Windows.
+        Ne nécessite pas de fichier spécifique.
+        """
+        import os
+        import sys
+        import subprocess
+        from django.conf import settings
+
+        dossier_archives = os.path.join(
+            settings.PAD_LOCAL_PATH,
+            'archives'
+        )
+
+        if not os.path.isdir(dossier_archives):
+            return Response(
+                {'error': f'Dossier archives introuvable : {dossier_archives}'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        try:
+            if sys.platform.startswith('win'):
+                os.startfile(dossier_archives)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', dossier_archives])
+            else:
+                subprocess.Popen(['xdg-open', dossier_archives])
+        except Exception as e:
+            return Response(
+                {'error': f"Impossible d'ouvrir les archives : {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                'success': True,
+                'path': dossier_archives,
+                'message': 'Dossier archives ouvert.',
+            },
+            status=status.HTTP_200_OK
+        )
+
+        # ═══════════════════════════════════════════════════════════
+    # OUVRIR LE DOSSIER ARCHIVES
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=True, methods=['get', 'post'], url_path='ouvrir-archive')
+    def ouvrir_archive(self, request, pk=None):
+        """
+        Ouvre le dossier archives/ dans l'Explorateur Windows.
         """
         import os
         import sys
@@ -478,37 +897,192 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
         from django.conf import settings
 
         fichier = self.get_object()
-        local_path = settings.PAD_LOCAL_PATH
 
-        # ═══ Vérifier que le dossier existe ═══
-        if not os.path.isdir(local_path):
+        # ═══ Chemin archives ═══
+        dossier_archives = os.path.join(
+            settings.PAD_LOCAL_PATH,
+            'archives'
+        )
+
+        if not os.path.isdir(dossier_archives):
             return Response(
-                {'error': f'Dossier PAD introuvable : {local_path}'},
+                {'error': f'Dossier archives introuvable : {dossier_archives}'},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # ═══ Ouvrir le dossier selon le système ═══
+        # ═══ Ouvrir le dossier ═══
         try:
             if sys.platform.startswith('win'):
-                # Windows : os.startfile ouvre directement l'Explorateur
+                os.startfile(dossier_archives)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', dossier_archives])
+            else:
+                subprocess.Popen(['xdg-open', dossier_archives])
+        except Exception as e:
+            return Response(
+                {'error': f"Impossible d'ouvrir les archives : {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                'success': True,
+                'path': dossier_archives,
+                'fichier': fichier.nomFichier,
+                'message': 'Dossier archives ouvert.',
+            },
+            status=status.HTTP_200_OK
+        )
+        # ═══════════════════════════════════════════════════════════
+    # OUVRIR LE PAD (avec jour + heure)
+    # ═══════════════════════════════════════════════════════════
+    @action(detail=True, methods=['get', 'post'], url_path='ouvrir-pad')
+    def ouvrir_pad(self, request, pk=None):
+        """
+        Ouvre le dossier du JOUR correspondant à la diffusion
+        (jour calculé depuis dateDiffusion) + sous-dossier heure si présent.
+
+        - dateDiffusion = "2026-10-15" → Jeudi → "4-ALAKAMISY"
+        - Si cheminPAD contient "4-ALAKAMISY/15h09/f.m4a" → ouvre ce sous-dossier
+        - Sinon → ouvre "4-ALAKAMISY/"
+        """
+        import os
+        import sys
+        import subprocess
+        from datetime import datetime
+        from django.conf import settings
+
+        fichier = self.get_object()
+
+        if not fichier.cheminPAD:
+            return Response(
+                {'error': 'Aucun chemin PAD enregistré.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ═══ 1. Récupérer dateDiffusion + heureDiffusion ═══
+        date_diff_str = request.data.get('dateDiffusion') or request.query_params.get('dateDiffusion')
+        heure_diff_str = request.data.get('heureDiffusion') or request.query_params.get('heureDiffusion')
+
+        # ═══ 2. Mapping jour semaine → dossier PAD ═══
+        JOURS_DOSSIERS = {
+            0: '1-ALATSINAINY',   # Lundi
+            1: '2-TALATA',        # Mardi
+            2: '3-ALAROBIA',      # Mercredi
+            3: '4-ALAKAMISY',     # Jeudi
+            4: '5- ZOMA',         # Vendredi
+            5: '6- SABOTSY',      # Samedi
+            6: '0- ALAHADY',      # Dimanche
+        }
+
+        dossier_jour = None
+        heure_str = None
+
+        if date_diff_str:
+            try:
+                # dateDiffusion format : "2026-10-15"
+                d = datetime.strptime(str(date_diff_str)[:10], '%Y-%m-%d')
+                dossier_jour = JOURS_DOSSIERS.get(d.weekday())
+            except Exception as e:
+                print(f"[PAD] Erreur parsing dateDiffusion : {e}")
+
+        if heure_diff_str:
+            try:
+                # heureDiffusion format : "15:09:00" ou "15:09"
+                heure_str = str(heure_diff_str)[:5].replace(':', 'h')
+            except Exception as e:
+                print(f"[PAD] Erreur parsing heureDiffusion : {e}")
+
+        # ═══ 3. Découper cheminPAD en liste ═══
+        chemins = [
+            c.strip()
+            for c in fichier.cheminPAD.split(',')
+            if c.strip()
+        ]
+
+        chemin_cible = None
+
+        # ═══ 4. Chercher le chemin qui correspond au jour ═══
+        if dossier_jour:
+            for c in chemins:
+                if dossier_jour in c:
+                    chemin_cible = c
+                    break
+
+        # ═══ 5. Fallback : si pas de jour, prendre le premier ═══
+        if not chemin_cible:
+            chemin_cible = chemins[0] if chemins else None
+
+        if not chemin_cible:
+            return Response(
+                {'error': 'Impossible de déterminer le dossier.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ═══ 6. Analyser le chemin ═══
+        # Ex : "4-ALAKAMISY/15h09/f.m4a"  → [4-ALAKAMISY, 15h09, f.m4a]
+        # Ex : "4-ALAKAMISY/f.m4a"        → [4-ALAKAMISY, f.m4a]
+        parties = chemin_cible.replace('\\', '/').split('/')
+        parties = [p for p in parties if p]
+
+        if len(parties) < 1:
+            return Response(
+                {'error': 'Chemin PAD invalide.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ═══ 7. Construire le chemin à ouvrir ═══
+        chemin_relatif = [parties[0]]  # dossier jour
+
+        # Si un sous-dossier heure existe dans le chemin
+        if (
+            len(parties) >= 3
+            and heure_str
+            and heure_str in parties[1]
+        ):
+            chemin_relatif.append(parties[1])
+
+        local_path = os.path.join(
+            settings.PAD_LOCAL_PATH,
+            *chemin_relatif
+        )
+
+        # ═══ 8. Vérifier l'existence ═══
+        if not os.path.isdir(local_path):
+            # Fallback : ouvrir juste le dossier jour
+            local_path = os.path.join(
+                settings.PAD_LOCAL_PATH,
+                parties[0]
+            )
+
+            if not os.path.isdir(local_path):
+                return Response(
+                    {'error': f'Dossier introuvable : {local_path}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        # ═══ 9. Ouvrir dans l'Explorateur Windows ═══
+        try:
+            if sys.platform.startswith('win'):
                 os.startfile(local_path)
             elif sys.platform == 'darwin':
-                # macOS
                 subprocess.Popen(['open', local_path])
             else:
-                # Linux
                 subprocess.Popen(['xdg-open', local_path])
         except Exception as e:
             return Response(
                 {'error': f"Impossible d'ouvrir le PAD : {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
         return Response(
             {
                 'success': True,
                 'path': local_path,
+                'dossier_jour': parties[0],
+                'sous_dossier': chemin_relatif[1] if len(chemin_relatif) > 1 else None,
                 'fichier': fichier.nomFichier,
-                'message': 'PAD ouvert avec succès.',
+                'message': f'Dossier ouvert : {local_path}',
             },
             status=status.HTTP_200_OK
         )
@@ -1085,14 +1659,21 @@ class FactureViewSet(viewsets.ModelViewSet):
 
         for facture in queryset:
             date_cmd = '-'
-            if facture.commande and facture.commande.dateCommande:
-                date_cmd = facture.commande.dateCommande.strftime('%d/%m/%Y')
+            if facture.dateFacture:
+                date_cmd = facture.dateFacture.strftime('%d/%m/%Y')
 
             montant = float(facture.montantTotal or 0)
 
+            # ═══ Client : figée en priorité ═══
+            nom_client = facture.client_nom
+            if not nom_client and facture.commande and facture.commande.client:
+                nom_client = facture.commande.client.nom
+            if not nom_client:
+                nom_client = '-'
+
             data.append([
                 facture.numeroFacture or '-',
-                facture.commande.client.nom if facture.commande and facture.commande.client else '-',
+                nom_client,
                 date_cmd,
                 f"{montant:,.0f} Ar".replace(',', ' '),
                 facture.statut or '-',
@@ -1141,6 +1722,8 @@ class FactureViewSet(viewsets.ModelViewSet):
 
         doc.build(story)
         return response
+
+    
 
     # =========================================================
     # EXPORT EXCEL — TABLEAU SIMPLE

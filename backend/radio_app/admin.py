@@ -3,7 +3,8 @@ from django.contrib.auth.admin import UserAdmin
 from .models import (
     Utilisateur, Client, Service, Tarif,
     Commande, LigneCommande, Document,
-    FichierAudio, Programmation, Facture
+    FichierAudio, Programmation, Facture,
+    PadConfig
 )
 
 
@@ -76,3 +77,12 @@ class ProgrammationAdmin(admin.ModelAdmin):
 @admin.register(Facture)
 class FactureAdmin(admin.ModelAdmin):
     list_display = ('id', 'numeroFacture', 'commande', 'montantTotal', 'statut')
+
+
+# ==========================================
+# PAD CONFIG
+# ==========================================
+@admin.register(PadConfig)
+class PadConfigAdmin(admin.ModelAdmin):
+    list_display = ('idPadConfig', 'nomReseau', 'dossier', 'nomUtilisateur')
+    search_fields = ('nomReseau', 'dossier')

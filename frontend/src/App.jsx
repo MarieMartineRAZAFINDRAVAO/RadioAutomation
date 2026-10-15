@@ -13,6 +13,7 @@ import Diffusion from './pages/Diffusion/Diffusion';
 import Parametres from './pages/Parametres/Parametres';
 import Clients from './pages/Clients/Clients';
 import Profil from './pages/Profil/Profil';
+import PadConfig from './pages/PadConfig/PadConfig';
 import Home from './pages/Home/Home';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
@@ -1203,6 +1204,9 @@ function App() {
                 setActiveTab('commandes');
               }}
             />
+          )}
+                    {activeTab === 'pad-config' && (
+            <PadConfig darkMode={darkMode} />
           )}
 
         </div>

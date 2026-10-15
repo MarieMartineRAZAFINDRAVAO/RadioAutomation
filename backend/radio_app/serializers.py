@@ -2,7 +2,8 @@ from rest_framework import serializers
 from .models import (
     Utilisateur, Client, Service, Tarif,
     Commande, LigneCommande, Document,
-    FichierAudio, Programmation, Facture
+    FichierAudio, Programmation, Facture,
+    PadConfig
 )
 
 
@@ -252,26 +253,9 @@ class FichierAudioSerializer(serializers.ModelSerializer):
 # ==========================================
 # FACTURE
 # ==========================================
+
 class FactureSerializer(serializers.ModelSerializer):
-    client_nom = serializers.CharField(
-        source='commande.client.nom',
-        read_only=True
-    )
-
-    client_telephone = serializers.CharField(
-        source='commande.client.telephone',
-        read_only=True
-    )
-
-    commande_id = serializers.IntegerField(
-        source='commande.id',
-        read_only=True
-    )
-
-    service_nom = serializers.SerializerMethodField()
-    tarif_libelle = serializers.SerializerMethodField()
-    tarif_prix = serializers.SerializerMethodField()
-
+    commande_id = serializers.SerializerMethodField()
     lignes = serializers.SerializerMethodField()
 
     class Meta:
@@ -281,50 +265,32 @@ class FactureSerializer(serializers.ModelSerializer):
             'numeroFacture',
             'dateFacture',
         )
+        extra_kwargs = {
+            'commande': {'required': False, 'allow_null': True},
+        }
 
-    def get_service_nom(self, obj):
+    def get_commande_id(self, obj):
         if obj.commande:
-            premiere = obj.commande.lignes.first()
-            if premiere and premiere.service:
-                return premiere.service.nomService
-        return '-'
-
-    def get_tarif_libelle(self, obj):
-        if obj.commande:
-            premiere = obj.commande.lignes.first()
-            if premiere and premiere.tarif:
-                return premiere.tarif.libelle
-        return '-'
-
-    def get_tarif_prix(self, obj):
-        if obj.commande:
-            premiere = obj.commande.lignes.first()
-            if premiere:
-                return float(premiere.prixUnitaire)
-        return 0
+            return obj.commande.id
+        return None
 
     def get_lignes(self, obj):
         """
-        Grouper les lignes par service + tarif.
-        Retourne : [{nbr, service_nom, tarif_libelle, prixUnitaire, montant}]
+        Lire les lignes figées (JSON) de la Facture.
         """
-        from collections import defaultdict
+        import json
 
-        groupes = defaultdict(lambda: {
-            'nbr': 0,
-            'service_nom': '',
-            'tarif_libelle': '',
-            'prixUnitaire': 0,
-            'montant': 0,
-        })
+        if not obj.lignes_json:
+            return []
 
-        for ligne in obj.commande.lignes.all():
-            cle = f"{ligne.service_id}-{ligne.tarif_id}"
-            g = groupes[cle]
-            g['nbr'] += 1
-            g['montant'] += float(ligne.montant)
-            g['service_nom'] = ligne.service.nomService
-            g['tarif_libelle'] = ligne.tarif.libelle
-            g['prixUnitaire'] = float(ligne.prixUnitaire)
-
-        return list(groupes.values())
+        try:
+            return json.loads(obj.lignes_json)
+        except Exception:
+            return []
+# ==========================================
+# PAD CONFIG
+# ==========================================
+class PadConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PadConfig
+        fields = '__all__'
