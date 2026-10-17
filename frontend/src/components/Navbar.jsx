@@ -1,38 +1,53 @@
-
-import React, {
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const mainColor = '#007A4D';
-const lightGreen = '#EAF7F1';
+
+// =========================================================
+// ICONES (horloge, flèche, paramètres ihany)
+// =========================================================
+const Icon = ({ children, size = 18 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+  >
+    {children}
+  </svg>
+);
+
+const ICONS = {
+  gear: (
+    <Icon>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </Icon>
+  ),
+  clock: (
+    <Icon size={22}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </Icon>
+  ),
+  chevron: (
+    <Icon size={16}>
+      <path d="M6 9l6 6 6-6" />
+    </Icon>
+  ),
+};
 
 const MENUS = [
-  {
-    id: 'dashboard',
-    label: 'Tableau de bord',
-  },
-  {
-    id: 'commandes',
-    label: 'Commandes',
-  },
-  {
-    id: 'factures',
-    label: 'Factures',
-  },
-  {
-    id: 'fichiers-audio',
-    label: 'Fichiers audio',
-  },
-  {
-    id: 'programmation',
-    label: 'Programmation',
-  },
-  {
-    id: 'pad-config',
-    label: 'Configuration',
-  },
+  { id: 'dashboard', label: 'Tableau de bord' },
+  { id: 'commandes', label: 'Commandes' },
+  { id: 'factures', label: 'Factures' },
+  { id: 'fichiers-audio', label: 'Fichiers audio' },
+  { id: 'programmation', label: 'Programmation' },
+  { id: 'pad-config', label: 'Configuration' },
 ];
 
 export default function Navbar({
@@ -44,271 +59,208 @@ export default function Navbar({
   onLogout,
 }) {
   const [menuOuvert, setMenuOuvert] = useState(false);
-
-  const [heure, setHeure] = useState(
-    new Date()
-  );
-
+  const [heure, setHeure] = useState(new Date());
   const [photoProfil, setPhotoProfil] = useState(
     localStorage.getItem('photoProfil') || ''
   );
-
   const menuRef = useRef(null);
 
-  // =========================================================
   // HORLOGE EN TEMPS REEL
-  // =========================================================
-
   useEffect(() => {
-    const interval = setInterval(() => {
-      setHeure(new Date());
-    }, 1000);
-
-    return () => {
-      clearInterval(interval);
-    };
+    const interval = setInterval(() => setHeure(new Date()), 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  // =========================================================
   // FERMER LE MENU PARAMETRES EN DEHORS
-  // =========================================================
-
   useEffect(() => {
     const fermerMenu = (event) => {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(
-          event.target
-        )
-      ) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
         setMenuOuvert(false);
       }
     };
-
-    document.addEventListener(
-      'mousedown',
-      fermerMenu
-    );
-
-    return () => {
-      document.removeEventListener(
-        'mousedown',
-        fermerMenu
-      );
-    };
+    document.addEventListener('mousedown', fermerMenu);
+    return () => document.removeEventListener('mousedown', fermerMenu);
   }, []);
 
-  // =========================================================
   // CHANGER LA PHOTO DE PROFIL
-  // =========================================================
-
   const changerPhotoProfil = (event) => {
     const fichier = event.target.files?.[0];
-
-    if (!fichier) {
-      return;
-    }
-
-    if (!fichier.type.startsWith('image/')) {
-      return;
-    }
+    if (!fichier || !fichier.type.startsWith('image/')) return;
 
     const lecteur = new FileReader();
-
     lecteur.onload = () => {
       const image = lecteur.result;
-
       setPhotoProfil(image);
-
-      localStorage.setItem(
-        'photoProfil',
-        image
-      );
+      localStorage.setItem('photoProfil', image);
     };
-
     lecteur.readAsDataURL(fichier);
   };
 
-  // =========================================================
-  // FORMAT HEURE
-  // =========================================================
+  const heureActuelle = heure.toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 
-  const heureActuelle =
-    heure.toLocaleTimeString(
-      'fr-FR',
-      {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }
-    );
+  const username = user?.username || 'Utilisateur';
+  const role = user?.role || 'Accueil';
 
-  // =========================================================
-  // FORMAT DATE
-  // =========================================================
+  const borderColor = isDarkMode ? '#3B5A4D' : '#E2E8F0';
+  const textStrong = isDarkMode ? '#FFFFFF' : '#0F172A';
+  const textSoft = isDarkMode ? '#CDE5DA' : '#334155';
 
-  const dateActuelle =
-    heure.toLocaleDateString(
-      'fr-FR',
-      {
-        weekday: 'long',
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-      }
-    );
+  const dropdownItem = {
+    width: '100%',
+    border: 'none',
+    background: 'transparent',
+    color: isDarkMode ? '#FFFFFF' : '#1E293B',
+    padding: '0.75rem 0.8rem',
+    textAlign: 'left',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontWeight: 800,
+    fontSize: '0.95rem',
+  };
 
-  // =========================================================
-  // NOM UTILISATEUR
-  // =========================================================
-
-  const username =
-    user?.username ||
-    'Utilisateur';
-
-  const role =
-    user?.role ||
-    'Accueil';
-
-  // =========================================================
-  // RENDER
-  // =========================================================
+  const separator = {
+    height: '1px',
+    backgroundColor: isDarkMode ? '#374151' : '#E2E8F0',
+    margin: '0.3rem 0',
+  };
 
   return (
     <header
       style={{
         width: '100%',
         boxSizing: 'border-box',
-        backgroundColor: isDarkMode
-          ? '#12382C'
-          : '#FFFFFF',
-        color: isDarkMode
-          ? '#FFFFFF'
-          : '#17211B',
+        position: 'sticky',  // ✅ Ampiana ity
+        top: 0,              // ✅ Ampiana ity
+        backgroundColor: isDarkMode ? '#12382C' : '#FFFFFF',
+        color: textStrong,
         boxShadow: isDarkMode
           ? '0 4px 18px rgba(0,0,0,0.35)'
           : '0 4px 18px rgba(0,0,0,0.08)',
-        position: 'relative',
-        zIndex: 100,
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
       }}
     >
-
-      {/* =====================================================
-          LIGNE SUPERIEURE
-      ===================================================== */}
-
       <div
         style={{
-          minHeight: '105px',
-          padding: '0 3.5rem',
+          width: '100%',
+          minHeight: '96px',
+          padding: '0 1.5rem',
           display: 'flex',
+          flexWrap: 'nowrap',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: '3rem',
+          gap: '1rem',
           boxSizing: 'border-box',
         }}
       >
-
-        {/* =================================================
-            LOGO + TITRE
-        ================================================= */}
-
+        {/* ============ LOGO + TITRE (sisiny havia) ============ */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '1.2rem',
-            minWidth: '360px',
+            gap: '0.8rem',
+            flexShrink: 0,
           }}
         >
-
-          {/* LOGO RADIO TSIRY */}
-
           <div
             style={{
-              width: '68px',
-              height: '68px',
-              borderRadius: '16px',
+              width: '52px',
+              height: '52px',
+              borderRadius: '12px',
               overflow: 'hidden',
-              backgroundColor: mainColor,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              flexShrink: 0,
-              boxShadow:
-                '0 5px 15px rgba(0,122,77,0.20)',
             }}
           >
             <img
               src="/tsiry.jpg"
               alt="Logo Radio Tsiry"
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                display: 'block',
-              }}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               onError={(event) => {
-                event.currentTarget.style.display =
-                  'none';
+                event.currentTarget.style.display = 'none';
               }}
             />
           </div>
 
-          {/* TITRE */}
-
-          <div
-            style={{
-              lineHeight: 1.15,
-            }}
-          >
-
+          <div style={{ lineHeight: 1.15 }}>
             <div
               style={{
-                fontSize: '1.65rem',
+                fontSize: '1.2rem',
                 fontWeight: 900,
-                letterSpacing: '1.2px',
-                color: isDarkMode
-                  ? '#FFFFFF'
-                  : mainColor,
+                color: isDarkMode ? '#FFFFFF' : mainColor,
                 whiteSpace: 'nowrap',
               }}
             >
               RADIO TSIRY
             </div>
-
             <div
               style={{
-                fontSize: '1rem',
-                fontWeight: 700,
-                marginTop: '7px',
-                color: isDarkMode
-                  ? '#CDE5DA'
-                  : '#475569',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                color: textSoft,
                 whiteSpace: 'nowrap',
+                letterSpacing: '0.5px',
               }}
             >
-              AUTOMATISATION RADIO TSIRY
+              AUTOMATISATION
             </div>
-
           </div>
-
         </div>
-        {/* =================================================
-            ESPACE CENTRAL (vide)
-        ================================================= */}
 
-        <div
+        {/* ============ MENU PRINCIPAL (soratra fotsiny, andalana iray) ============ */}
+        <nav
           style={{
+            display: 'flex',
+            flexWrap: 'nowrap',
+            alignItems: 'center',
+            gap: '0.4rem',
             flex: 1,
-            minWidth: '250px',
+            justifyContent: 'center',
+            minWidth: 0,
           }}
-        />
+        >
+          {MENUS.map((menu) => {
+            const actif = activeTab === menu.id;
 
-        {/* =================================================
-            PARTIE DROITE
-        ================================================= */}
+            return (
+              <button
+                key={menu.id}
+                type="button"
+                onClick={() => setActiveTab(menu.id)}
+                style={{
+                  border: 'none',
+                  backgroundColor: actif
+                    ? isDarkMode
+                      ? '#1B4D3B'
+                      : '#D9F2E8'
+                    : 'transparent',
+                  color: actif
+                    ? isDarkMode
+                      ? '#FFFFFF'
+                      : mainColor
+                    : textStrong,
+                  padding: '0.75rem 1.1rem',
+                  cursor: 'pointer',
+                  fontWeight: actif ? 900 : 800,
+                  fontSize: '1rem',
+                  borderRadius: '12px',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                {menu.label}
+              </button>
+            );
+          })}
+        </nav>
 
+        {/* ============ HEURE + PROFIL + PARAMETRES (sisiny havanana) ============ */}
         <div
           style={{
             display: 'flex',
@@ -317,82 +269,58 @@ export default function Navbar({
             flexShrink: 0,
           }}
         >
-
-          {/* =================================================
-              HEURE
-          ================================================= */}
-
-          <div
-            style={{
-              textAlign: 'right',
-              paddingRight: '1rem',
-              borderRight: isDarkMode
-                ? '1px solid #3B5A4D'
-                : '1px solid #E2E8F0',
-            }}
-          >
-
-            <div
-              style={{
-                fontSize: '1.35rem',
-                fontWeight: 850,
-                color: isDarkMode
-                  ? '#FFFFFF'
-                  : mainColor,
-                letterSpacing: '1px',
-                fontVariantNumeric:
-                  'tabular-nums',
-              }}
-            >
-              {heureActuelle}
-            </div>
-
-            <div
-              style={{
-                fontSize: '0.75rem',
-                marginTop: '3px',
-                color: isDarkMode
-                  ? '#B9D7C9'
-                  : '#64748B',
-                fontWeight: 600,
-              }}
-            >
-              Heure actuelle
-            </div>
-
-          </div>
-
-          {/* =================================================
-              PROFIL
-          ================================================= */}
-
+          {/* HEURE */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.8rem',
-              padding:
-                '0.55rem 0.9rem 0.55rem 0.6rem',
-              borderRadius: '14px',
-              backgroundColor: isDarkMode
-                ? '#1B4D3B'
-                : '#F1F8F4',
-              border: isDarkMode
-                ? '1px solid #2F6651'
-                : '1px solid #D7EAE0',
-              minWidth: '190px',
-              boxSizing: 'border-box',
+              gap: '0.6rem',
+              paddingRight: '1rem',
+              borderRight: `1px solid ${borderColor}`,
+              color: isDarkMode ? '#FFFFFF' : mainColor,
             }}
           >
+            {ICONS.clock}
+            <div>
+              <div
+                style={{
+                  fontSize: '1.3rem',
+                  fontWeight: 900,
+                  letterSpacing: '0.5px',
+                  fontVariantNumeric: 'tabular-nums',
+                  lineHeight: 1.1,
+                }}
+              >
+                {heureActuelle}
+              </div>
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  marginTop: '2px',
+                  color: textSoft,
+                  fontWeight: 700,
+                }}
+              >
+                Heure actuelle
+              </div>
+            </div>
+          </div>
 
-            {/* PHOTO */}
-
+          {/* PROFIL */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.6rem',
+              paddingRight: '1rem',
+              borderRight: `1px solid ${borderColor}`,
+            }}
+          >
             <label
               style={{
-                position: 'relative',
-                width: '52px',
-                height: '52px',
-                borderRadius: '12px',
+                width: '48px',
+                height: '48px',
+                borderRadius: '10px',
                 overflow: 'hidden',
                 backgroundColor: mainColor,
                 display: 'flex',
@@ -403,51 +331,28 @@ export default function Navbar({
               }}
               title="Changer la photo de profil"
             >
-
               {photoProfil ? (
                 <img
                   src={photoProfil}
                   alt="Profil"
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                  }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               ) : (
-                <span
-                  style={{
-                    color: '#FFFFFF',
-                    fontSize: '1.2rem',
-                    fontWeight: 900,
-                  }}
-                >
-                  {username
-                    .charAt(0)
-                    .toUpperCase()}
+                <span style={{ color: '#FFFFFF', fontSize: '1.1rem', fontWeight: 900 }}>
+                  {username.charAt(0).toUpperCase()}
                 </span>
               )}
-
               <input
                 type="file"
                 accept="image/*"
-                onChange={
-                  changerPhotoProfil
-                }
-                style={{
-                  display: 'none',
-                }}
+                onChange={changerPhotoProfil}
+                style={{ display: 'none' }}
               />
-
             </label>
-
-            {/* INFORMATIONS PROFIL */}
 
             <button
               type="button"
-              onClick={() =>
-                setActiveTab('profil')
-              }
+              onClick={() => setActiveTab('profil')}
               style={{
                 border: 'none',
                 background: 'transparent',
@@ -458,196 +363,97 @@ export default function Navbar({
                 minWidth: 0,
               }}
             >
-
               <div
                 style={{
-                  fontSize: '0.95rem',
-                  fontWeight: 850,
-                  color: isDarkMode
-                    ? '#FFFFFF'
-                    : '#0F172A',
+                  fontSize: '1rem',
+                  fontWeight: 900,
+                  color: textStrong,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  maxWidth: '115px',
+                  maxWidth: '110px',
                 }}
               >
                 {username}
               </div>
-
               <div
                 style={{
-                  fontSize: '0.78rem',
-                  marginTop: '5px',
-                  color: isDarkMode
-                    ? '#B9D7C9'
-                    : '#64748B',
-                  fontWeight: 650,
+                  fontSize: '0.8rem',
+                  marginTop: '2px',
+                  color: textSoft,
+                  fontWeight: 700,
                 }}
               >
                 {role}
               </div>
-
             </button>
 
+            <span style={{ color: mainColor, display: 'flex' }}>{ICONS.chevron}</span>
           </div>
 
-          {/* =================================================
-              PARAMETRES
-          ================================================= */}
-
-          <div
-            ref={menuRef}
-            style={{
-              position: 'relative',
-            }}
-          >
-
+          {/* PARAMETRES */}
+          <div ref={menuRef} style={{ position: 'relative' }}>
             <button
               type="button"
-              onClick={() =>
-                setMenuOuvert(
-                  !menuOuvert
-                )
-              }
+              onClick={() => setMenuOuvert(!menuOuvert)}
               title="Paramètres"
               style={{
-                width: '52px',
-                height: '52px',
-                border: isDarkMode
-                  ? '1px solid #3B5A4D'
-                  : '1px solid #D7EAE0',
-                backgroundColor:
-                  isDarkMode
-                    ? '#1B4D3B'
-                    : '#F1F8F4',
-                color: isDarkMode
-                  ? '#FFFFFF'
-                  : mainColor,
-                borderRadius: '12px',
+                width: '48px',
+                height: '48px',
+                border: 'none',
+                backgroundColor: isDarkMode ? '#1B4D3B' : '#E2F3EB',
+                color: isDarkMode ? '#FFFFFF' : mainColor,
+                borderRadius: '10px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '1.45rem',
-                transition:
-                  'all 0.2s ease',
+                transition: 'all 0.2s ease',
               }}
             >
-              ⚙
+              {ICONS.gear}
             </button>
-
-            {/* DROPDOWN */}
 
             {menuOuvert && (
               <div
                 style={{
                   position: 'absolute',
                   right: 0,
-                  top:
-                    'calc(100% + 12px)',
-                  width: '235px',
-                  backgroundColor:
-                    isDarkMode
-                      ? '#1F2937'
-                      : '#FFFFFF',
-                  borderRadius: '14px',
-                  padding: '0.6rem',
-                  boxShadow:
-                    '0 15px 35px rgba(0,0,0,0.20)',
-                  border: isDarkMode
-                    ? '1px solid #374151'
-                    : '1px solid #E2E8F0',
+                  top: 'calc(100% + 10px)',
+                  width: '220px',
+                  backgroundColor: isDarkMode ? '#1F2937' : '#FFFFFF',
+                  borderRadius: '12px',
+                  padding: '0.5rem',
+                  boxShadow: '0 15px 35px rgba(0,0,0,0.20)',
+                  border: isDarkMode ? '1px solid #374151' : '1px solid #E2E8F0',
+                  zIndex: 999,
                 }}
               >
-
-                <div
-                  style={{
-                    padding:
-                      '0.6rem 0.8rem 0.8rem',
-                    fontSize: '0.85rem',
-                    fontWeight: 850,
-                    color: isDarkMode
-                      ? '#DDF5E9'
-                      : mainColor,
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('profil');
+                    setMenuOuvert(false);
                   }}
+                  style={dropdownItem}
                 >
-                  PARAMÈTRES
-                </div>
+                  👤 Profil
+                </button>
 
-                {/* MODE CLAIR */}
+                <div style={separator} />
 
                 <button
                   type="button"
                   onClick={() => {
-                    setIsDarkMode(false);
+                    setIsDarkMode(!isDarkMode);
                     setMenuOuvert(false);
                   }}
-                  style={{
-                    width: '100%',
-                    border: 'none',
-                    background:
-                      !isDarkMode
-                        ? lightGreen
-                        : 'transparent',
-                    color: isDarkMode
-                      ? '#FFFFFF'
-                      : '#334155',
-                    padding:
-                      '0.85rem 0.8rem',
-                    textAlign: 'left',
-                    borderRadius: '9px',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    fontSize: '0.95rem',
-                  }}
+                  style={dropdownItem}
                 >
-                  Mode clair
+                  {isDarkMode ? '☀️ Mode clair' : '🌙 Mode sombre'}
                 </button>
 
-                {/* MODE SOMBRE */}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsDarkMode(true);
-                    setMenuOuvert(false);
-                  }}
-                  style={{
-                    width: '100%',
-                    border: 'none',
-                    background:
-                      isDarkMode
-                        ? 'rgba(255,255,255,0.10)'
-                        : 'transparent',
-                    color: isDarkMode
-                      ? '#FFFFFF'
-                      : '#334155',
-                    padding:
-                      '0.85rem 0.8rem',
-                    textAlign: 'left',
-                    borderRadius: '9px',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    fontSize: '0.95rem',
-                  }}
-                >
-                  Mode sombre
-                </button>
-
-                <div
-                  style={{
-                    height: '1px',
-                    backgroundColor:
-                      isDarkMode
-                        ? '#374151'
-                        : '#E2E8F0',
-                    margin:
-                      '0.5rem 0',
-                  }}
-                />
-
-                {/* DECONNEXION */}
+                <div style={separator} />
 
                 <button
                   type="button"
@@ -655,130 +461,15 @@ export default function Navbar({
                     setMenuOuvert(false);
                     onLogout();
                   }}
-                  style={{
-                    width: '100%',
-                    border: 'none',
-                    background:
-                      'transparent',
-                    color: '#DC2626',
-                    padding:
-                      '0.85rem 0.8rem',
-                    textAlign: 'left',
-                    borderRadius: '9px',
-                    cursor: 'pointer',
-                    fontWeight: 750,
-                    fontSize: '0.95rem',
-                  }}
+                  style={{ ...dropdownItem, color: '#DC2626', fontWeight: 900 }}
                 >
-                  Déconnexion
+                  🚪 Déconnexion
                 </button>
-
               </div>
             )}
-
           </div>
-
         </div>
-
       </div>
-
-      {/* =====================================================
-          MENU PRINCIPAL
-      ===================================================== */}
-
-      <div
-        style={{
-          borderTop: isDarkMode
-            ? '1px solid #2F5546'
-            : '1px solid #E2EEE8',
-          backgroundColor:
-            isDarkMode
-              ? '#0F2F24'
-              : '#F8FBF9',
-          padding:
-            '0 3.5rem',
-          boxSizing: 'border-box',
-        }}
-      >
-
-        <nav
-          style={{
-            minHeight: '68px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.9rem',
-            flexWrap: 'wrap',
-          }}
-        >
-
-          {MENUS.map((menu) => {
-            const actif =
-              activeTab === menu.id;
-
-            return (
-              <button
-                key={menu.id}
-                type="button"
-                onClick={() =>
-                  setActiveTab(
-                    menu.id
-                  )
-                }
-                style={{
-                  border: 'none',
-                  borderBottom:
-                    actif
-                      ? `4px solid ${mainColor}`
-                      : '4px solid transparent',
-
-                  backgroundColor:
-                    actif
-                      ? isDarkMode
-                        ? '#1B4D3B'
-                        : '#E2F3EB'
-                      : 'transparent',
-
-                  color:
-                    actif
-                      ? isDarkMode
-                        ? '#FFFFFF'
-                        : mainColor
-                      : isDarkMode
-                        ? '#D4E7DE'
-                        : '#475569',
-
-                  padding:
-                    '1rem 1.7rem 0.85rem',
-
-                  cursor: 'pointer',
-
-                  fontWeight:
-                    actif
-                      ? 850
-                      : 700,
-
-                  fontSize: '1.05rem',
-
-                  borderRadius:
-                    '9px 9px 0 0',
-
-                  whiteSpace:
-                    'nowrap',
-
-                  transition:
-                    'all 0.2s ease',
-                }}
-              >
-                {menu.label}
-              </button>
-            );
-          })}
-
-        </nav>
-
-      </div>
-
     </header>
   );
 }

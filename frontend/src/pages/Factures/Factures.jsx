@@ -1101,9 +1101,9 @@ const tdStyle = {
 const actionButtonOutline = (couleurs) => ({
   padding: '9px 20px',
   borderRadius: '8px',
-  border: `1px solid ${couleurs.bordure}`,
-  background: 'transparent',
-  color: couleurs.texte,
+  border: `1px solid ${couleurs.vert}`,
+  background: couleurs.vert,
+  color: '#FFFFFF',
   fontWeight: 700,
   fontSize: '14px',
   cursor: 'pointer',

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
-
+const Etoile = () => <span style={{ color: '#DC2626', fontWeight: 900 }}> *</span>;
 function Commandes({
   darkMode = false,
   onFactureGeneree,
@@ -73,6 +73,13 @@ function Commandes({
 
   // ═══ Modal notification custom ═══
   const [modalNotif, setModalNotif] = useState(null);
+    // ═══ Notification centrée plein écran ═══
+  const [notification, setNotification] = useState(null);
+
+  const afficherNotification = (message, type = 'succes') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 1500); // 1500 = 1,5 s
+  };
   // ÉTAPE 2 : SERVICE + TARIF + DATES + HEURES
   // =========================================================
   const [services, setServices] = useState([]);
@@ -217,10 +224,13 @@ const bloquerClavierTelephone = (event) => {
   }
 };
 
+const MAX_NOM = 30;
+
 const gererNom = (event) => {
-  const valeur = event.target.value;
+  const valeur = event.target.value.slice(0, MAX_NOM);
   const formatted = valeur.replace(/\b\w/g, (c) => c.toUpperCase());
   setNom(formatted);
+   // ilaina amin'ny recherche
 };
 
 const gererRechercheClient = (event) => {
@@ -384,8 +394,9 @@ const gererRechercheClient = (event) => {
             anciennes.filter((c) => c.id !== cmd.id)
           );
 
-          setSuccessMessage(
-            `Commande CMD-${String(cmd.id).padStart(4, '0')} supprimée avec succès.`
+          afficherNotification(
+            `Commande CMD-${String(cmd.id).padStart(4, '0')} supprimée avec succès.`,
+            'suppression'
           );
           setTimeout(() => setSuccessMessage(''), 3000);
         } catch (err) {
@@ -753,15 +764,9 @@ const gererRechercheClient = (event) => {
       setTelephone('');
       setRechercheClient('');
 
-      setSuccessMessage(
-        'Client ajouté avec succès.'
-      );
-
       setInterfaceClient('liste');
-
-      setTimeout(() => {
-        setSuccessMessage('');
-      }, 3000);
+      setEtape(2); // ✅ miditra avy hatrany any amin'ny étape 2
+      afficherNotification('Client ajouté avec succès.');
     } catch (err) {
       console.error(err);
 
@@ -777,25 +782,14 @@ const gererRechercheClient = (event) => {
   // =========================================================
   // SÉLECTIONNER DEPUIS LA RECHERCHE
   // =========================================================
-  const selectionnerClientRecherche = (client) => {
-    // ═══ Sélectionner le client existant ═══
+    const selectionnerClientRecherche = (client) => {
     setClientSelectionne(client);
-
-    // ═══ Réinitialiser le formulaire ═══
     setNom('');
     setTelephone('');
     setRechercheClient('');
     setError('');
-
-    // ═══ Message de confirmation ═══
-    setSuccessMessage(
-      `Client "${client.nom}" sélectionné.`
-    );
-
-    // ═══ Retourner à la liste ═══
     setInterfaceClient('liste');
-
-    setTimeout(() => setSuccessMessage(''), 3000);
+    setEtape(2); // ✅ mivantana any amin'ny étape 2
   };
 
   // =========================================================
@@ -1035,9 +1029,7 @@ const gererRechercheClient = (event) => {
           data
         );
 
-        setSuccessMessage(
-          'Client modifié avec succès.'
-        );
+        afficherNotification('Client modifié avec succès.');
 
         setClientAction(null);
         setNom('');
@@ -1142,7 +1134,7 @@ const gererRechercheClient = (event) => {
             setClientSelectionne(null);
           }
 
-          setSuccessMessage('Client supprimé avec succès.');
+          afficherNotification('Client supprimé avec succès.', 'suppression');
           setTimeout(() => setSuccessMessage(''), 3000);
         } catch (err) {
           console.error(err);
@@ -1735,7 +1727,7 @@ const gererRechercheClient = (event) => {
         );
       }
 
-      setSuccessMessage('Commande ajoutée avec succès.');
+      afficherNotification('Commande ajoutée avec succès.');
 
       setEtape(1);
       setClientSelectionne(null);
@@ -2854,7 +2846,7 @@ const gererRechercheClient = (event) => {
                           '16px',
                       }}
                     >
-                      Nom
+                      Nom <Etoile />
                     </label>
 
                     <input
@@ -2862,6 +2854,9 @@ const gererRechercheClient = (event) => {
                        value={nom}
                        onChange={gererNom}
                        placeholder="Nom du client"
+                       maxLength={MAX_NOM}
+                       autoFocus
+                       
 
 
                       
@@ -2885,6 +2880,59 @@ const gererRechercheClient = (event) => {
                           '16px',
                       }}
                     />
+                    {/* Compteur */}
+<div style={{ marginTop: '6px', textAlign: 'right', fontSize: '12px', color: couleurs.texteSecondaire }}>
+  {nom.length}/{MAX_NOM}
+</div>
+
+{/* Recherche clients existants */}
+{nom.trim() !== '' && clientsCorrespondants.length > 0 && (
+  <div
+    style={{
+      marginTop: '6px',
+      border: `1px solid ${couleurs.bordure}`,
+      borderRadius: '8px',
+      overflow: 'hidden',
+      backgroundColor: couleurs.carte,
+      maxHeight: '220px',
+      overflowY: 'auto',
+    }}
+  >
+    <div
+      style={{
+        padding: '8px 12px',
+        fontSize: '12px',
+        fontWeight: 700,
+        color: couleurs.texteSecondaire,
+        backgroundColor: couleurs.vertClair,
+      }}
+    >
+      Clients existants — cliquez pour sélectionner
+    </div>
+
+    {clientsCorrespondants.map((client) => {
+      const id = client.idClient ?? client.id;
+      return (
+        <div
+          key={id}
+          onClick={() => selectionnerClientRecherche(client)}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            cursor: 'pointer',
+            borderTop: `1px solid ${couleurs.bordure}`,
+          }}
+        >
+          <span style={{ fontWeight: 700 }}>{client.nom}</span>
+          <span style={{ color: couleurs.texteSecondaire }}>
+            {client.telephone || '-'}
+          </span>
+        </div>
+      );
+    })}
+  </div>
+)}
                   </div>
 
                   <div>
@@ -2900,7 +2948,7 @@ const gererRechercheClient = (event) => {
                           '16px',
                       }}
                     >
-                      Téléphone
+                      Téléphone <Etoile />
                     </label>
 
                     <input
@@ -3132,14 +3180,8 @@ const gererRechercheClient = (event) => {
                       <input
                         type="text"
                         value={nom}
-                        onChange={(
-                          event
-                        ) =>
-                          setNom(
-                            event.target
-                              .value
-                          )
-                        }
+                        onChange={gererNom}
+                        maxLength={MAX_NOM}
                         style={{
                           width:
                             '100%',
@@ -3516,7 +3558,7 @@ const gererRechercheClient = (event) => {
                     '16px',
                 }}
               >
-                Service
+                Service <Etoile />
               </label>
 
               <select
@@ -3635,7 +3677,7 @@ const gererRechercheClient = (event) => {
                     '16px',
                 }}
               >
-                Tarif
+                Tarif <Etoile />
               </label>
 
               <select
@@ -4057,7 +4099,7 @@ const gererRechercheClient = (event) => {
                     '20px',
                 }}
               >
-                Heures de diffusion
+                Heures de diffusion <Etoile />
               </h3>
 
               <div
@@ -5703,6 +5745,46 @@ const gererRechercheClient = (event) => {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      )}
+            {/* ═══ NOTIFICATION CENTRÉE PLEIN ÉCRAN ═══ */}
+      {notification && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: couleurs.fond,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 100000,
+          }}
+        >
+          <div style={{ textAlign: 'center', padding: '0 20px' }}>
+            <div
+              style={{
+                width: '90px',
+                height: '90px',
+                borderRadius: '50%',
+                margin: '0 auto 22px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '44px',
+                color: '#FFFFFF',
+                backgroundColor:
+                  notification.type === 'suppression' ? '#DC2626' : couleurs.vert,
+              }}
+            >
+              {notification.type === 'suppression' ? '🗑' : '✓'}
+            </div>
+            <div style={{ fontSize: '26px', fontWeight: 800, color: couleurs.texte }}>
+              {notification.message}
+            </div>
           </div>
         </div>
       )}

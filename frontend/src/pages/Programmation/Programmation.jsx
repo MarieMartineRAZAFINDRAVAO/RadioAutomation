@@ -7,10 +7,7 @@ import {
   Clock,
 } from 'lucide-react';
 
-import {
-  getFichiersAudio,
-  envoyerVersPAD,
-} from '../../services/api';
+import { getFichiersAudio } from '../../services/api';
 
 const mainColor = '#007A4D';
 
@@ -54,23 +51,7 @@ export default function Programmation({ darkMode = false, onPrecedent }) {
     chargerDonnees();
   }, []);
 
-  const handleEnvoyerPAD = async (fichier) => {
-    setEnvoiEnCours(fichier.id);
-    setErreur('');
-
-    try {
-      await envoyerVersPAD(fichier.id);
-      chargerDonnees();
-    } catch (err) {
-      setErreur(
-        err.response?.data?.error ||
-          `Échec du transfert de "${fichier.nomFichier}" vers le PAD.`
-      );
-      chargerDonnees();
-    } finally {
-      setEnvoiEnCours(null);
-    }
-  };
+ 
 
   // =========================================================
   // STYLES
@@ -271,44 +252,38 @@ export default function Programmation({ darkMode = false, onPrecedent }) {
                           }}
                         >
                           <button
-                            type="button"
-                            onClick={() => handleEnvoyerPAD(f)}
-                            disabled={
-                              envoiEnCours === f.id ||
-                              f.statut === 'Transféré'
-                            }
-                            style={{
-                              backgroundColor:
-                                f.statut === 'Transféré'
-                                  ? '#E2E8F0'
-                                  : mainColor,
-                              color:
-                                f.statut === 'Transféré'
-                                  ? '#64748B'
-                                  : '#FFF',
-                              border: 'none',
-                              padding: '9px 18px',
-                              borderRadius: '8px',
-                              fontWeight: 700,
-                              cursor:
-                                f.statut === 'Transféré'
-                                  ? 'default'
-                                  : 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              fontSize: '14px',
-                            }}
-                          >
-                            {envoiEnCours === f.id ? (
-                              <RefreshCw size={16} className="spin" />
-                            ) : (
-                              <UploadCloud size={16} />
-                            )}
-                            {f.statut === 'Transféré'
-                              ? 'Déjà envoyé'
-                              : 'Envoyer PAD'}
-                          </button>
+  type="button"
+  onClick={async () => {
+    try {
+      const token = localStorage.getItem('accessToken');
+      await fetch(`http://127.0.0.1:8000/api/fichiers-audio/${f.id}/ouvrir-pad/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({}),
+      });
+    } catch (e) {
+      alert("Impossible d'ouvrir le PAD réseau.");
+    }
+  }}
+  style={{
+    backgroundColor: '#3B82F6',
+    color: '#FFF',
+    border: 'none',
+    padding: '9px 18px',
+    borderRadius: '8px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '14px',
+  }}
+>
+  🌐 Voir Réseau
+</button>
                         </td>
                       </tr>
                     );

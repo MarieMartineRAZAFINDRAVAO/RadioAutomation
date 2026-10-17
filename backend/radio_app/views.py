@@ -938,154 +938,64 @@ class FichierAudioViewSet(viewsets.ModelViewSet):
     # ═══════════════════════════════════════════════════════════
     @action(detail=True, methods=['get', 'post'], url_path='ouvrir-pad')
     def ouvrir_pad(self, request, pk=None):
-        """
-        Ouvre le dossier du JOUR correspondant à la diffusion
-        (jour calculé depuis dateDiffusion) + sous-dossier heure si présent.
-
-        - dateDiffusion = "2026-10-15" → Jeudi → "4-ALAKAMISY"
-        - Si cheminPAD contient "4-ALAKAMISY/15h09/f.m4a" → ouvre ce sous-dossier
-        - Sinon → ouvre "4-ALAKAMISY/"
-        """
         import os
         import sys
         import subprocess
-        from datetime import datetime
         from django.conf import settings
+        from datetime import datetime
 
         fichier = self.get_object()
 
         if not fichier.cheminPAD:
-            return Response(
-                {'error': 'Aucun chemin PAD enregistré.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': 'Aucun chemin PAD enregistré.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ═══ 1. Récupérer dateDiffusion + heureDiffusion ═══
-        date_diff_str = request.data.get('dateDiffusion') or request.query_params.get('dateDiffusion')
-        heure_diff_str = request.data.get('heureDiffusion') or request.query_params.get('heureDiffusion')
+        # Raiso ny chemin
+        chemin = fichier.cheminPAD.split(',')[0].strip()
 
-        # ═══ 2. Mapping jour semaine → dossier PAD ═══
-        JOURS_DOSSIERS = {
-            0: '1-ALATSINAINY',   # Lundi
-            1: '2-TALATA',        # Mardi
-            2: '3-ALAROBIA',      # Mercredi
-            3: '4-ALAKAMISY',     # Jeudi
-            4: '5- ZOMA',         # Vendredi
-            5: '6- SABOTSY',      # Samedi
-            6: '0- ALAHADY',      # Dimanche
-        }
+        # ═══ Raha PAD Original (SMB) ═══
+        if fichier.padMode == 'original' and fichier.idPadConfig:
+            # Ny fichier.cheminPAD dia efa manana ny endrika "ZOMA/11h44/..."
+            # Noho izany dia ampiarahintsika amin'ny anaran'ny réseau
+            reseau = fichier.idPadConfig.nomReseau # Ohatra: '192.168.1.20'
+            dossier_partage = fichier.idPadConfig.dossier # Ohatra: 'test'
+            
+            # Manamboatra ny lalana: \\IP\test\ZOMA\...
+            chemin_complet = f"\\\\{reseau}\\{dossier_partage}\\{chemin.replace('/', '\\')}"
+            
+            # Raiso ny dossier ray (fa tsy ny fichier)
+            dossier_a_ouvrir = os.path.dirname(chemin_complet)
 
-        dossier_jour = None
-        heure_str = None
-
-        if date_diff_str:
+            # Sokafy amin'ny Windows Explorer
             try:
-                # dateDiffusion format : "2026-10-15"
-                d = datetime.strptime(str(date_diff_str)[:10], '%Y-%m-%d')
-                dossier_jour = JOURS_DOSSIERS.get(d.weekday())
+                if sys.platform.startswith('win'):
+                    subprocess.Popen(f'explorer "{dossier_a_ouvrir}"')
+                else:
+                    subprocess.Popen(['xdg-open', dossier_a_ouvrir])
             except Exception as e:
-                print(f"[PAD] Erreur parsing dateDiffusion : {e}")
+                return Response({'error': f"Erreur: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if heure_diff_str:
-            try:
-                # heureDiffusion format : "15:09:00" ou "15:09"
-                heure_str = str(heure_diff_str)[:5].replace(':', 'h')
-            except Exception as e:
-                print(f"[PAD] Erreur parsing heureDiffusion : {e}")
+            return Response({'success': True, 'path': dossier_a_ouvrir})
 
-        # ═══ 3. Découper cheminPAD en liste ═══
-        chemins = [
-            c.strip()
-            for c in fichier.cheminPAD.split(',')
-            if c.strip()
-        ]
-
-        chemin_cible = None
-
-        # ═══ 4. Chercher le chemin qui correspond au jour ═══
-        if dossier_jour:
-            for c in chemins:
-                if dossier_jour in c:
-                    chemin_cible = c
-                    break
-
-        # ═══ 5. Fallback : si pas de jour, prendre le premier ═══
-        if not chemin_cible:
-            chemin_cible = chemins[0] if chemins else None
-
-        if not chemin_cible:
-            return Response(
-                {'error': 'Impossible de déterminer le dossier.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ═══ 6. Analyser le chemin ═══
-        # Ex : "4-ALAKAMISY/15h09/f.m4a"  → [4-ALAKAMISY, 15h09, f.m4a]
-        # Ex : "4-ALAKAMISY/f.m4a"        → [4-ALAKAMISY, f.m4a]
-        parties = chemin_cible.replace('\\', '/').split('/')
-        parties = [p for p in parties if p]
-
-        if len(parties) < 1:
-            return Response(
-                {'error': 'Chemin PAD invalide.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ═══ 7. Construire le chemin à ouvrir ═══
-        chemin_relatif = [parties[0]]  # dossier jour
-
-        # Si un sous-dossier heure existe dans le chemin
-        if (
-            len(parties) >= 3
-            and heure_str
-            and heure_str in parties[1]
-        ):
+        # ═══ Raha PAD Local (fallback) ═══
+        parties = chemin.replace('\\', '/').split('/')
+        chemin_relatif = [parties[0]]
+        if len(parties) >= 3:
             chemin_relatif.append(parties[1])
 
-        local_path = os.path.join(
-            settings.PAD_LOCAL_PATH,
-            *chemin_relatif
-        )
+        local_path = os.path.join(settings.PAD_LOCAL_PATH, *chemin_relatif)
 
-        # ═══ 8. Vérifier l'existence ═══
         if not os.path.isdir(local_path):
-            # Fallback : ouvrir juste le dossier jour
-            local_path = os.path.join(
-                settings.PAD_LOCAL_PATH,
-                parties[0]
-            )
+            local_path = os.path.join(settings.PAD_LOCAL_PATH, parties[0])
 
-            if not os.path.isdir(local_path):
-                return Response(
-                    {'error': f'Dossier introuvable : {local_path}'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-        # ═══ 9. Ouvrir dans l'Explorateur Windows ═══
         try:
             if sys.platform.startswith('win'):
                 os.startfile(local_path)
-            elif sys.platform == 'darwin':
-                subprocess.Popen(['open', local_path])
             else:
                 subprocess.Popen(['xdg-open', local_path])
         except Exception as e:
-            return Response(
-                {'error': f"Impossible d'ouvrir le PAD : {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': f"Erreur: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                'success': True,
-                'path': local_path,
-                'dossier_jour': parties[0],
-                'sous_dossier': chemin_relatif[1] if len(chemin_relatif) > 1 else None,
-                'fichier': fichier.nomFichier,
-                'message': f'Dossier ouvert : {local_path}',
-            },
-            status=status.HTTP_200_OK
-        )
+        return Response({'success': True, 'path': local_path})
 
     # ═══════════════════════════════════════════════════════════
     # LISTER LES ARCHIVES
